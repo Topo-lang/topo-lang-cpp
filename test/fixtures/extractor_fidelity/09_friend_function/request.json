@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["getBoxWidth"],
+  "symbolTable": {
+    "getBoxWidth": {
+      "qualifiedName": "getBoxWidth",
+      "simpleName": "getBoxWidth"
+    }
+  }
+}

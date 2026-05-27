@@ -1,0 +1,123 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "init": {
+            "args": [],
+            "callee": "Point2::Point2",
+            "fidelity": "source",
+            "kind": "call"
+          },
+          "kind": "vardecl",
+          "name": "p",
+          "type": {
+            "nameParts": [
+              "Point2"
+            ]
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "assign",
+          "target": {
+            "fidelity": "source",
+            "kind": "memberaccess",
+            "member": "x",
+            "object": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "p"
+            }
+          },
+          "value": {
+            "fidelity": "source",
+            "kind": "varref",
+            "name": "a"
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "assign",
+          "target": {
+            "fidelity": "source",
+            "kind": "memberaccess",
+            "member": "y",
+            "object": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "p"
+            }
+          },
+          "value": {
+            "fidelity": "source",
+            "kind": "varref",
+            "name": "b"
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "args": [],
+            "callee": "Point2::Point2",
+            "fidelity": "source",
+            "kind": "call"
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "a",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "make_point",
+      "returnType": {
+        "nameParts": [
+          "Point2"
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [
+        {
+          "fidelity": "source",
+          "name": "x",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        },
+        {
+          "fidelity": "source",
+          "name": "y",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "Point2"
+    }
+  ]
+}

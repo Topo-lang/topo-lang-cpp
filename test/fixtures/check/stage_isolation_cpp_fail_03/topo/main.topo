@@ -1,0 +1,16 @@
+// Multiple stage-isolation violations in the same fn block: both stage-1
+// functions reach into the stage-2 function.
+
+namespace app {
+  public:
+    void run();
+    void loadA();
+    void loadB();
+    void merge();
+
+    fn run {
+        stage<1> loadA();
+        stage<1> loadB();
+        stage<2> merge();
+    }
+}

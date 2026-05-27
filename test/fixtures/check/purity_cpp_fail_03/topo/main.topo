@@ -1,0 +1,13 @@
+// Purity violation: parallel stage function uses pre-increment on a global.
+
+namespace app {
+  public:
+    void run();
+    void tick();
+    void monitor();
+
+    fn run {
+        stage<1> tick();
+        stage<1> monitor();
+    }
+}

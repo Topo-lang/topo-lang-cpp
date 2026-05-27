@@ -1,0 +1,16 @@
+// Visibility violation: an `internal` function is called from an
+// undeclared external function.
+
+namespace core {
+  public:
+    void run();
+    void bootstrap();
+
+  internal:
+    void initInternal();
+
+  public:
+    fn run {
+        stage<1> bootstrap();
+    }
+}

@@ -1,0 +1,17 @@
+// Multiple purity violations: two parallel functions each write a distinct
+// global, plus a compound assignment. Verifies that the check reports every
+// violation instead of stopping at the first.
+
+namespace app {
+  public:
+    void run();
+    void producer();
+    void consumer();
+    void sideEffect();
+
+    fn run {
+        stage<1> producer();
+        stage<1> consumer();
+        stage<1> sideEffect();
+    }
+}

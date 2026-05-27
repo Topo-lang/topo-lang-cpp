@@ -1,0 +1,6 @@
+namespace app {
+  public:
+    external integer allocator_alloc();
+    external void allocator_free();
+    external void buffer_copy();
+}

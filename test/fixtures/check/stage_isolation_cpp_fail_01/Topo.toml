@@ -1,0 +1,12 @@
+[project]
+name = "stage_isolation_cpp_fail_01"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+
+[stage_isolation]
+mode = "force"

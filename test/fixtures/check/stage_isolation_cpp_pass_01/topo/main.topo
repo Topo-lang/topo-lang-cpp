@@ -1,0 +1,15 @@
+// Sequential stages with no cross-stage calls at the host level.
+// `init` does not call `process` — the host call graph respects the
+// .topo stage ordering.
+
+namespace app {
+  public:
+    void run();
+    void init();
+    void process();
+
+    fn run {
+        stage<1> init();
+        stage<2> process();
+    }
+}

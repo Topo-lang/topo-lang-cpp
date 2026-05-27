@@ -1,0 +1,53 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "init": {
+            "description": "unsupported binary operator ';' at line 6:20",
+            "fidelity": "source",
+            "kind": "unsupported"
+          },
+          "kind": "vardecl",
+          "name": "r",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "varref",
+            "name": "r"
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "n",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "use_macro",
+      "returnType": {
+        "nameParts": [
+          "int"
+        ]
+      },
+      "unsupported": [
+        "unsupported binary operator ';' at line 6:20"
+      ]
+    }
+  ],
+  "types": []
+}

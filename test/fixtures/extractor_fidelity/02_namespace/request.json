@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["ns::foo::bar"],
+  "symbolTable": {
+    "ns::foo::bar": {
+      "qualifiedName": "ns::foo::bar",
+      "simpleName": "bar"
+    }
+  }
+}

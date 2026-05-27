@@ -1,0 +1,41 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "varref",
+            "name": "value"
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "value",
+          "type": {
+            "nameParts": [
+              "T"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "identity",
+      "returnType": {
+        "nameParts": [
+          "T"
+        ]
+      },
+      "templateParams": [
+        {
+          "kind": "type",
+          "name": "T"
+        }
+      ]
+    }
+  ],
+  "types": []
+}

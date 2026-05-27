@@ -1,0 +1,5 @@
+namespace app {
+  public:
+    integer compute(integer x, integer y);
+    integer sum(integer x);
+}

@@ -1,0 +1,7 @@
+[topo]
+root = "main.topo"
+
+[build]
+language = "cpp"
+sources = ["main.cpp"]
+output = "main"

@@ -1,0 +1,14 @@
+// Backward stage call: `process` (stage<2>) calling `init` (stage<1>)
+// is allowed — a later stage using earlier-stage results is legal.
+
+namespace app {
+  public:
+    void run();
+    void init();
+    void process();
+
+    fn run {
+        stage<1> init();
+        stage<2> process();
+    }
+}

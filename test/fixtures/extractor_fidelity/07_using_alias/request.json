@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["compute"],
+  "symbolTable": {
+    "compute": {
+      "qualifiedName": "compute",
+      "simpleName": "compute"
+    }
+  }
+}

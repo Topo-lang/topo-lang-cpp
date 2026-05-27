@@ -1,0 +1,46 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "x"
+            },
+            "op": "mul",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "literal",
+              "litKind": "integer",
+              "value": "2"
+            }
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "ns::foo::bar",
+      "returnType": {
+        "nameParts": [
+          "int"
+        ]
+      }
+    }
+  ],
+  "types": []
+}

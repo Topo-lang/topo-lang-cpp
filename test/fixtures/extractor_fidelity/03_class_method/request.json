@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["Counter::increment"],
+  "symbolTable": {
+    "Counter::increment": {
+      "qualifiedName": "Counter::increment",
+      "simpleName": "increment"
+    }
+  }
+}

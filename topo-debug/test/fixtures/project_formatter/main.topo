@@ -1,0 +1,31 @@
+// Plan 41 T2 Path 1 — native-lldb formatter ("福利路径") E2E fixture.
+//
+// Declares a `Mesh` debug entry. The matching main.cpp puts a `Mesh`
+// VALUE on the stack (not a bare array) whose `verts` / `tris` columns
+// are the split arrays a DataLayoutPass-style SoA transform would
+// produce. Raw `lldb -b -o 'frame variable mesh'` would dump those split
+// column arrays / scalar fields; with the formatter loaded via the
+// project's `.lldbinit` the user instead sees the logical declared view
+// rendered from the summary template below:
+//
+//   <Mesh: 6 verts, 9 tris>
+//
+// (verts = mesh.verts[0..6]  → count 6
+//  tris  = mesh.tris[0..9]   → count 9)
+
+std::import("cstdint", int32_t);
+
+namespace app {
+  public:
+    type Mesh {
+      public:
+        int32_t verts;
+        int32_t tris;
+    }
+}
+
+debug Mesh {
+  view verts_view from verts[0..6];
+  view tris_view from tris[0..9];
+  summary "<Mesh: {count(verts_view)} verts, {count(tris_view)} tris>";
+}

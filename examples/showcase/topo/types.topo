@@ -1,0 +1,198 @@
+// types.topo — data pipeline type system
+//
+// Features demonstrated: using, std::import, constraint hierarchy,
+//           adapt, type (constructor, destructor, const, static,
+//           inheritance), template (constrained params), typefn,
+//           comptime fn, comptime if, instantiate, ownership
+
+using int = std::cpp17::int;
+using bool = std::cpp17::bool;
+using double = std::cpp17::double;
+using size_t = std::cpp17::size_t;
+using int64_t = std::cpp17::int64_t;
+
+std::import("pipeline/config.h", PipelineConfig);
+
+namespace pipeline {
+
+  // -- Constraint hierarchy -----------------------------------------
+  // Validatable: data quality contracts
+  // Serializable: network transfer / persistence
+  // Indexable inherits Serializable: lookup requires storage
+
+  public:
+    constraint Validatable {
+        bool validate();
+        int error_count();
+    }
+
+    constraint Serializable {
+        size_t serialized_size();
+        void serialize(int dest);
+        bool deserialize(int src);
+    }
+
+    constraint Indexable : Serializable {
+        int64_t index_key();
+        int compare_key(const Indexable& other);
+    }
+
+  // -- Core types ---------------------------------------------------
+
+  public:
+    type Record {
+      public:
+        explicit Record(int schema_id);
+        ~Record();
+        int field_count() const;
+        int get_field(int index) const;
+        void set_field(int index, int value);
+        int schema_id() const;
+        bool is_empty() const;
+      private:
+        int schema;
+        int count;
+    }
+
+    type Schema {
+      public:
+        explicit Schema(int id);
+        int field_type(int index) const;
+        bool accepts(const Record& record) const;
+        int id() const;
+        static Schema default_schema();
+      private:
+        int schema_id;
+        int field_count;
+    }
+
+    type Batch {
+      public:
+        explicit Batch(int capacity);
+        ~Batch();
+        void add(const Record& record);
+        const Record& get(int index) const;
+        int size() const;
+        bool is_full() const;
+        void clear();
+      private:
+        int count;
+        int cap;
+    }
+
+  // -- Inheritance --------------------------------------------------
+
+  public:
+    type DataSource {
+      public:
+        int read(Batch& batch);
+        bool has_more() const;
+        int64_t bytes_read() const;
+    }
+
+    type FileSource : public DataSource {
+      public:
+        explicit FileSource(int path);
+        int64_t file_size() const;
+        double progress() const;
+      private:
+        int fd;
+        int64_t offset;
+    }
+
+  // -- Constraint adaptations ---------------------------------------
+
+  public:
+    adapt Validatable for Record {
+        validate = record_validate;
+        error_count = record_error_count;
+    }
+
+    adapt Serializable for Record {
+        serialized_size = record_serialized_size;
+        serialize = record_serialize;
+        deserialize = record_deserialize;
+    }
+
+    adapt Indexable for Record {
+        index_key = record_index_key;
+        compare_key = record_compare_key;
+    }
+
+  // -- Constrained templates ----------------------------------------
+
+  public:
+    template<typename T : Serializable>
+    type Cache {
+      public:
+        bool get(int64_t key, T& out) const;
+        void put(int64_t key, const T& value);
+        void evict(int64_t key);
+        int size() const;
+        void clear();
+      private:
+        int count;
+        int max_size;
+    }
+
+    template<typename T : Indexable>
+    type Index {
+      public:
+        void insert(const T& item);
+        bool lookup(int64_t key, T& out) const;
+        void remove(int64_t key);
+        int size() const;
+      private:
+        int count;
+    }
+
+  // -- Template instantiations --------------------------------------
+
+  public:
+    instantiate Cache<Record>;
+    instantiate Index<Record>;
+
+  // -- Type function ------------------------------------------------
+
+  public:
+    typefn StorageType(typename T) -> typename {
+        match T {
+            int => int64_t,
+            double => double,
+            _ => T
+        }
+    }
+
+  // -- Compile-time -------------------------------------------------
+
+  public:
+    comptime fn max_batch_size(int record_size) -> int { record_size * 4096 }
+
+    comptime if (sizeof(int) <= 4) {
+      void use_compact_format();
+    } else {
+      void use_wide_format();
+    }
+
+  // -- Ownership modifiers ------------------------------------------
+
+  public:
+    void submit_batch(owned Batch batch);
+    int query_cache(shared Cache<Record> cache, int64_t key);
+    bool check_source(weak DataSource source);
+
+  // -- Constraint implementation functions --------------------------
+
+  protected:
+    bool record_validate(Record& record);
+    int record_error_count(const Record& record);
+    size_t record_serialized_size(const Record& record);
+    void record_serialize(const Record& record, int dest);
+    bool record_deserialize(Record& record, int src);
+    int64_t record_index_key(const Record& record);
+    int record_compare_key(const Record& a, const Record& b);
+
+  private:
+    void compact_cache(int threshold);
+    void rebuild_index_segment(int segment_id);
+}

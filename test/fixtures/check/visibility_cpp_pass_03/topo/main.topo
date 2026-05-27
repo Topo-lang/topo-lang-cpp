@@ -1,0 +1,19 @@
+// Mixed visibility: public API, private internals, all calls from inside
+// the same namespace, nothing touching private from outside.
+
+namespace lib {
+  public:
+    void run();
+    void compute();
+    void finalize();
+
+  private:
+    void normalize();
+    void helper();
+
+  public:
+    fn run {
+        stage<1> compute();
+        stage<2> finalize();
+    }
+}

@@ -1,0 +1,13 @@
+[project]
+name = "containment_l2_external_ok"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+
+[containment]
+mode = "force"
+depth = "l2"

@@ -1,0 +1,82 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "init": {
+            "fidelity": "source",
+            "kind": "literal",
+            "litKind": "integer",
+            "value": "10"
+          },
+          "kind": "vardecl",
+          "name": "y",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        },
+        {
+          "fidelity": "source",
+          "init": {
+            "description": "LambdaExpr at line 7:16",
+            "fidelity": "source",
+            "kind": "unsupported"
+          },
+          "kind": "vardecl",
+          "name": "add",
+          "type": {
+            "nameParts": [
+              "(lambda at <FIXTURE>:7:16)"
+            ]
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "args": [
+              {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "operator()"
+              },
+              {
+                "fidelity": "source",
+                "kind": "literal",
+                "litKind": "integer",
+                "value": "5"
+              }
+            ],
+            "callee": "use_lambda::(lambda at <FIXTURE>:7:16)::operator()",
+            "fidelity": "source",
+            "kind": "call"
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "use_lambda",
+      "returnType": {
+        "nameParts": [
+          "int"
+        ]
+      },
+      "unsupported": [
+        "LambdaExpr at line 7:16"
+      ]
+    }
+  ],
+  "types": []
+}

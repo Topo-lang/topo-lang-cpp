@@ -1,0 +1,22 @@
+// Nested namespace visibility violation: a private function in a deeper
+// namespace is reached from a different top-level namespace.
+
+namespace engine {
+  public:
+    void run();
+    void orchestrate();
+
+    fn run {
+        stage<1> orchestrate();
+    }
+}
+
+namespace engine::backend {
+  private:
+    void flushBuffers();
+}
+
+namespace graphics {
+  public:
+    void render();
+}

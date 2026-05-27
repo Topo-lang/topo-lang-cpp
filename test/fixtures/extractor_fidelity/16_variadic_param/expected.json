@@ -1,0 +1,17 @@
+{
+  "functions": [],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [],
+      "qualifiedName": "Tuple",
+      "templateParams": [
+        {
+          "isVariadic": true,
+          "kind": "type",
+          "name": "Ts"
+        }
+      ]
+    }
+  ]
+}

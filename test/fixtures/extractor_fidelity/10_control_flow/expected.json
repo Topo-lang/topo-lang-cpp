@@ -1,0 +1,244 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "init": {
+            "fidelity": "source",
+            "kind": "literal",
+            "litKind": "integer",
+            "value": "0"
+          },
+          "kind": "vardecl",
+          "name": "sum",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        },
+        {
+          "condition": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "n"
+            },
+            "op": "less",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "literal",
+              "litKind": "integer",
+              "value": "0"
+            }
+          },
+          "fidelity": "source",
+          "kind": "if",
+          "thenBody": [
+            {
+              "fidelity": "source",
+              "kind": "return",
+              "value": {
+                "fidelity": "source",
+                "kind": "unaryop",
+                "op": "negate",
+                "operand": {
+                  "fidelity": "source",
+                  "kind": "literal",
+                  "litKind": "integer",
+                  "value": "1"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "fidelity": "source",
+          "init": {
+            "fidelity": "source",
+            "kind": "literal",
+            "litKind": "integer",
+            "value": "0"
+          },
+          "kind": "vardecl",
+          "name": "i",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        },
+        {
+          "body": [
+            {
+              "fidelity": "source",
+              "kind": "assign",
+              "target": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "sum"
+              },
+              "value": {
+                "fidelity": "source",
+                "kind": "binaryop",
+                "lhs": {
+                  "fidelity": "source",
+                  "kind": "varref",
+                  "name": "sum"
+                },
+                "op": "add",
+                "rhs": {
+                  "fidelity": "source",
+                  "kind": "varref",
+                  "name": "i"
+                }
+              }
+            },
+            {
+              "fidelity": "source",
+              "kind": "assign",
+              "target": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "i"
+              },
+              "value": {
+                "fidelity": "source",
+                "kind": "binaryop",
+                "lhs": {
+                  "fidelity": "source",
+                  "kind": "varref",
+                  "name": "i"
+                },
+                "op": "add",
+                "rhs": {
+                  "fidelity": "source",
+                  "kind": "literal",
+                  "litKind": "integer",
+                  "value": "1"
+                }
+              }
+            }
+          ],
+          "condition": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "i"
+            },
+            "op": "less",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "n"
+            }
+          },
+          "fidelity": "source",
+          "kind": "while"
+        },
+        {
+          "body": [
+            {
+              "fidelity": "source",
+              "kind": "assign",
+              "target": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "sum"
+              },
+              "value": {
+                "fidelity": "source",
+                "kind": "binaryop",
+                "lhs": {
+                  "fidelity": "source",
+                  "kind": "varref",
+                  "name": "sum"
+                },
+                "op": "add",
+                "rhs": {
+                  "fidelity": "source",
+                  "kind": "varref",
+                  "name": "j"
+                }
+              }
+            }
+          ],
+          "condition": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "j"
+            },
+            "op": "less",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "literal",
+              "litKind": "integer",
+              "value": "3"
+            }
+          },
+          "fidelity": "source",
+          "increment": {
+            "description": "assignment expression at line 15:28",
+            "fidelity": "source",
+            "kind": "unsupported"
+          },
+          "init": {
+            "fidelity": "source",
+            "init": {
+              "fidelity": "source",
+              "kind": "literal",
+              "litKind": "integer",
+              "value": "0"
+            },
+            "kind": "vardecl",
+            "name": "j",
+            "type": {
+              "nameParts": [
+                "int"
+              ]
+            }
+          },
+          "kind": "for"
+        },
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "varref",
+            "name": "sum"
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "n",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "classify",
+      "returnType": {
+        "nameParts": [
+          "int"
+        ]
+      },
+      "unsupported": [
+        "assignment expression at line 15:28"
+      ]
+    }
+  ],
+  "types": []
+}

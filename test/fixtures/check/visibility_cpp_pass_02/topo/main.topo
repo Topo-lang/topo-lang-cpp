@@ -1,0 +1,15 @@
+// Private function called from a sibling in the SAME namespace — allowed.
+
+namespace engine {
+  public:
+    void run();
+    void coordinate();
+
+  private:
+    void detail();
+
+  public:
+    fn run {
+        stage<1> coordinate();
+    }
+}

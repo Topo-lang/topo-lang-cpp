@@ -1,0 +1,16 @@
+// Multi-stage forward violation: stage<1> function calls a stage<3>
+// function, skipping stage<2>.
+
+namespace app {
+  public:
+    void run();
+    void prepare();
+    void execute();
+    void cleanup();
+
+    fn run {
+        stage<1> prepare();
+        stage<2> execute();
+        stage<3> cleanup();
+    }
+}

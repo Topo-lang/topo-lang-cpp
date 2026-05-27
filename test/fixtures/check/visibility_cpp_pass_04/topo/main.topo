@@ -1,0 +1,15 @@
+// Visibility check is OFF — violations in host code must not produce errors.
+
+namespace app {
+  public:
+    void run();
+    void api();
+
+  private:
+    void secret();
+
+  public:
+    fn run {
+        stage<1> api();
+    }
+}

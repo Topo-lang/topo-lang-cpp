@@ -1,0 +1,61 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "init": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "a"
+            },
+            "op": "add",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "literal",
+              "litKind": "integer",
+              "value": "1"
+            }
+          },
+          "kind": "vardecl",
+          "name": "b",
+          "type": {
+            "nameParts": [
+              "Int"
+            ]
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "varref",
+            "name": "b"
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "a",
+          "type": {
+            "nameParts": [
+              "Int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "compute",
+      "returnType": {
+        "nameParts": [
+          "Int"
+        ]
+      }
+    }
+  ],
+  "types": []
+}

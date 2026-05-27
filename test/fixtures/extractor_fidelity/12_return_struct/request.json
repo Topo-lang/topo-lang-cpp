@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["make_point"],
+  "symbolTable": {
+    "make_point": {
+      "qualifiedName": "make_point",
+      "simpleName": "make_point"
+    }
+  }
+}

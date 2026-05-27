@@ -1,0 +1,54 @@
+[project]
+name = "showcase"
+
+[topo]
+root = "topo/session.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+include = ["include"]
+standard = "c++17"
+output = "showcase"
+
+[parallel]
+mode = "force"
+
+[lifetime]
+mode = "force"
+
+[observability]
+mode = "force"
+exporter = "stdout"
+
+[completeness]
+ignore_constructors = true
+ignore_destructors = true
+ignore_main = true
+ignore_patterns = [
+    "PipelineConfig",
+    "*::operator*",
+    "pipeline::Record",
+    "pipeline::Record::*",
+    "pipeline::Schema",
+    "pipeline::Schema::*",
+    "pipeline::Batch",
+    "pipeline::Batch::*",
+    "pipeline::DataSource",
+    "pipeline::DataSource::*",
+    "pipeline::FileSource",
+    "pipeline::FileSource::*",
+    "pipeline::Cache",
+    "pipeline::Cache::*",
+    "pipeline::Index",
+    "pipeline::Index::*",
+    "pipeline::out",
+    "pipeline::batch",
+    "pipeline::conn",
+    "pipeline::schemas",
+    "pipeline::cache",
+    "pipeline::count",
+    "pipeline::source",
+    "pipeline::result",
+    "pipeline::data",
+]

@@ -1,0 +1,6 @@
+std::import("types.h", AppConfig);
+
+namespace app {
+  public:
+    integer process(integer x);
+}

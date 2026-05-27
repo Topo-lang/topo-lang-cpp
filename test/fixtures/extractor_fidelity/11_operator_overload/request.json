@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["Point::add_point"],
+  "symbolTable": {
+    "Point::add_point": {
+      "qualifiedName": "Point::add_point",
+      "simpleName": "add_point"
+    }
+  }
+}

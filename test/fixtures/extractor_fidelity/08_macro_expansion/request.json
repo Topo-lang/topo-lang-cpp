@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["use_macro"],
+  "symbolTable": {
+    "use_macro": {
+      "qualifiedName": "use_macro",
+      "simpleName": "use_macro"
+    }
+  }
+}

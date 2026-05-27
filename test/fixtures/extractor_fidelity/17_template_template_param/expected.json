@@ -1,0 +1,22 @@
+{
+  "functions": [],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [],
+      "qualifiedName": "Holder",
+      "templateParams": [
+        {
+          "innerParams": [
+            {
+              "kind": "type",
+              "name": ""
+            }
+          ],
+          "kind": "template",
+          "name": "C"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+namespace app {
+  public:
+    integer helper(integer x);
+    integer process(integer x);
+}

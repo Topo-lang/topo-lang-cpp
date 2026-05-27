@@ -1,0 +1,13 @@
+// Pure parallel stage functions: no global writes.
+
+namespace app {
+  public:
+    void run();
+    void compute();
+    void render();
+
+    fn run {
+        stage<1> compute();
+        stage<1> render();
+    }
+}

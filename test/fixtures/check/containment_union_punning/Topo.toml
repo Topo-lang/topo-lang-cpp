@@ -1,0 +1,12 @@
+[project]
+name = "containment_union_punning"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+
+[containment]
+mode = "force"

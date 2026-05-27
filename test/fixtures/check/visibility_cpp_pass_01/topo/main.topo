@@ -1,0 +1,13 @@
+// Public functions calling public functions — no visibility concerns.
+
+namespace app {
+  public:
+    void run();
+    void stepA();
+    void stepB();
+
+    fn run {
+        stage<1> stepA();
+        stage<2> stepB();
+    }
+}

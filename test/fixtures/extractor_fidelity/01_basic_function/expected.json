@@ -1,0 +1,53 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "a"
+            },
+            "op": "add",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "b"
+            }
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "a",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "add",
+      "returnType": {
+        "nameParts": [
+          "int"
+        ]
+      }
+    }
+  ],
+  "types": []
+}

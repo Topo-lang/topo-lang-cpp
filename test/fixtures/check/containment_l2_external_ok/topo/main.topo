@@ -1,0 +1,5 @@
+namespace app {
+  public:
+    external integer read_file(integer id);
+    integer process(integer x);
+}

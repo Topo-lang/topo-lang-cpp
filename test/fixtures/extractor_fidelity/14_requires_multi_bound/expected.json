@@ -1,0 +1,28 @@
+{
+  "functions": [],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [],
+      "qualifiedName": "Box",
+      "templateParams": [
+        {
+          "bounds": [
+            {
+              "nameParts": [
+                "Sortable"
+              ]
+            },
+            {
+              "nameParts": [
+                "Hashable"
+              ]
+            }
+          ],
+          "kind": "type",
+          "name": "T"
+        }
+      ]
+    }
+  ]
+}

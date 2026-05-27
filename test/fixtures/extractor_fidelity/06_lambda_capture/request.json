@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["use_lambda"],
+  "symbolTable": {
+    "use_lambda": {
+      "qualifiedName": "use_lambda",
+      "simpleName": "use_lambda"
+    }
+  }
+}

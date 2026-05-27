@@ -1,0 +1,6 @@
+std::import("nonexistent_header_xyz.h", FakeType);
+
+namespace app {
+  public:
+    integer process(integer x);
+}

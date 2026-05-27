@@ -1,0 +1,67 @@
+// session.topo — session lifecycle, staged execution, multi-return
+//
+// Features demonstrated: lifetime (bounded), staged fn block with
+//           parallel branches, multi-return, nested namespace,
+//           all 4 visibility tiers
+
+import types;
+import pipeline;
+
+namespace pipeline {
+
+  // -- Lifetime declarations ----------------------------------------
+
+  lifetime connection = connect..disconnect;
+  lifetime transaction = begin_transaction..end_transaction;
+
+  // -- Staged session execution -------------------------------------
+
+  public:
+    void run();
+
+    fn run {
+      stage<1> connect() -> conn;
+      stage<2> load_schemas(conn) -> schemas;
+      stage<2> warm_cache(conn) -> cache;
+      stage<3> begin_transaction();
+      stage<3> process_batches(schemas, cache) -> count;
+      stage<4> end_transaction();
+      stage<4> report_metrics(count);
+      stage<5> disconnect();
+    }
+
+    get_status() -> (int processed, int errors, int pending);
+
+  // -- Nested namespace ---------------------------------------------
+
+  namespace metrics {
+    protected:
+      void record_latency(int stage_id, double ms);
+      void record_throughput(int records_per_sec);
+      double get_p99_latency();
+
+    internal:
+      void reset_all();
+  }
+
+  // -- Session operations -------------------------------------------
+
+  protected:
+    void connect();
+    void disconnect();
+    int load_schemas(int conn);
+    int warm_cache(int conn);
+    void begin_transaction();
+    void end_transaction();
+    int process_batches(int schemas, int cache);
+    void report_metrics(int count);
+
+  private:
+    void rollback_on_error();
+    void flush_buffers();
+    bool retry_connection(int max_attempts);
+
+  internal:
+    void dump_session_state();
+    void trace_pipeline(int batch_id);
+}

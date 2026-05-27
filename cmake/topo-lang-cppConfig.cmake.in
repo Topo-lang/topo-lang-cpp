@@ -1,0 +1,37 @@
+@PACKAGE_INIT@
+
+# topo-lang-cpp CMake package config.
+#
+# Consumers do:
+#     find_package(topo-lang-cpp CONFIG REQUIRED)
+#     target_link_libraries(<tgt> PRIVATE topo::lang-cpp::topo-lang-cpp-headers)
+#
+# topo-lang-cpp's libs PUBLIC-depend on topo-core (frontend / check /
+# transpile / lsp bridge) and topo-lang (plugin framework). When built with
+# TOPO_LANG_CPP_ENABLE_LLVM=ON, also brings topo-llvm + LLVM + Clang.
+
+include(CMakeFindDependencyMacro)
+
+if(NOT TARGET topo::core::TopoCheck)
+    find_dependency(topo-core CONFIG)
+endif()
+if(NOT TARGET topo::lang::TopoLang)
+    find_dependency(topo-lang CONFIG)
+endif()
+find_dependency(nlohmann_json CONFIG)
+
+# When the LLVM scope was installed, downstream needs topo-llvm + LLVM/Clang
+# imported targets to resolve TopoCppDriver / topo-extract-cpp /
+# TopoDebugAdapter transitive symbols.
+set(_topo_lang_cpp_llvm_scope @TOPO_LANG_CPP_ENABLE_LLVM@)
+if(_topo_lang_cpp_llvm_scope)
+    if(NOT TARGET topo::llvm::topo-llvm-headers)
+        find_dependency(topo-llvm CONFIG)
+    endif()
+    find_dependency(LLVM CONFIG)
+    find_dependency(Clang CONFIG)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/topo-lang-cppTargets.cmake")
+
+check_required_components(topo-lang-cpp)

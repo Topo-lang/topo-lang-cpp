@@ -1,0 +1,4 @@
+namespace app {
+  public:
+    integer process_data(integer x);
+}

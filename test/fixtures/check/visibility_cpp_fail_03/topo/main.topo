@@ -1,0 +1,26 @@
+// Multiple private-call violations across namespace boundaries.
+
+namespace lib {
+  public:
+    void run();
+    void api();
+
+  private:
+    void alpha();
+    void beta();
+}
+
+namespace consumer {
+  public:
+    void drive();
+    fn drive {
+        stage<1> lib::api();
+    }
+}
+
+namespace lib {
+  public:
+    fn run {
+        stage<1> api();
+    }
+}

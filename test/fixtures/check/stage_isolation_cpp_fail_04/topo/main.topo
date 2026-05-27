@@ -1,0 +1,16 @@
+// Chained stage violations: a three-stage pipeline where both stage<1>
+// and stage<2> functions reach into the stage<3> function.
+
+namespace app {
+  public:
+    void run();
+    void acquire();
+    void transform();
+    void store();
+
+    fn run {
+        stage<1> acquire();
+        stage<2> transform();
+        stage<3> store();
+    }
+}

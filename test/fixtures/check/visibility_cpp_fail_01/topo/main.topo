@@ -1,0 +1,23 @@
+// Visibility violation: a private function declared in namespace `app`
+// is called from a different namespace `other`.
+
+namespace app {
+  public:
+    void run();
+    void compute();
+
+  private:
+    void helper();
+}
+
+namespace other {
+  public:
+    void invoke();
+}
+
+namespace app {
+  public:
+    fn run {
+        stage<1> compute();
+    }
+}

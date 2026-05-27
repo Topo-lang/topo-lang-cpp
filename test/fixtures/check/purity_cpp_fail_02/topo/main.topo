@@ -1,0 +1,13 @@
+// Purity violation: parallel stage function writes to an `extern` global.
+
+namespace app {
+  public:
+    void run();
+    void stepA();
+    void stepB();
+
+    fn run {
+        stage<1> stepA();
+        stage<1> stepB();
+    }
+}

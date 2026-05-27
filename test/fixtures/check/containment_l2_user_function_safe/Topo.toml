@@ -1,0 +1,13 @@
+[project]
+name = "containment_l2_user_function_safe"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+
+[containment]
+mode = "force"
+depth = "l2"

@@ -1,0 +1,22 @@
+{
+  "functions": [],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [],
+      "qualifiedName": "Buf",
+      "templateParams": [
+        {
+          "bound": {
+            "nameParts": [
+              "int"
+            ]
+          },
+          "defaultValue": "10",
+          "kind": "nontype",
+          "name": "N"
+        }
+      ]
+    }
+  ]
+}

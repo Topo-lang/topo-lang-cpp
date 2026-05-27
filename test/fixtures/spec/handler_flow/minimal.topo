@@ -1,0 +1,22 @@
+// Per-language syntax-coverage fixture for the handler / flow
+// declaration vocabulary. Host-language bridging (decorator / macro /
+// annotation surfaces) is a separate vertical-slice concern and is NOT
+// exercised here — this fixture only pins the .topo surface form so the
+// new keywords parse and check identically across every host package.
+//
+// handler = pure In->Out Functor (single stdlib-typed input/output);
+// flow    = DAG of handlers. Both desugar onto FnDecl / pipeline
+// FnLogicBlock and are checked by the existing checkers.
+
+namespace handler_flow_smoke {
+  public:
+    handler parse(string raw) -> record<id: i64, amount: f64>;
+    handler validate(record<id: i64, amount: f64> o) -> record<id: i64, amount: f64>;
+    handler persist(record<id: i64, amount: f64> o) -> bool;
+
+    flow pipeline {
+      parse -> validate;
+      validate -> persist;
+      persist -> void;
+    }
+}

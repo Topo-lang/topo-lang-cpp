@@ -1,0 +1,6 @@
+namespace app {
+  public:
+    external integer read_file(integer id);
+    external integer run_command(integer code);
+    integer process(integer x);
+}

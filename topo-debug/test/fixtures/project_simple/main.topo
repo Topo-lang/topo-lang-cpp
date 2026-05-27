@@ -1,0 +1,33 @@
+// Plan 41 Phase 3a — project-level E2E fixture.
+//
+// Declares a `Buf` debug entry with one literal-bounded view `first_half`
+// over the host-side `int data[16]` array. The matching main.cpp puts the
+// array on the stack, fills it 1..16, and breakpoints at the line after the
+// fill so `topo debug query 'sum(first_half)'` sees 1+2+...+8 = 36.
+//
+// Validates the full success path: `topo build` writes main.topo-dbg.json
+// (with the view), `topo debug` auto-discovers it next to ./main and
+// rewrites `first_half` to `data[0..8]` before driving the lldb adapter.
+
+std::import("cstdint", int32_t);
+
+namespace app {
+  public:
+    type Buf {
+      public:
+        int32_t data;
+    }
+}
+
+debug Buf {
+  view first_half from data[0..8];
+  view second_half from data[8..16];
+  // Plan 45 Phase 1 — `{ <query-expr> }` placeholders are evaluated by the
+  // summary renderer against the breakpoint's frame. `{{` / `}}` escape
+  // literal braces. At the breakpoint on line 13 of main.cpp:
+  //   sum(data)        = 136
+  //   sum(first_half)  = 36
+  //   sum(second_half) = 100
+  //   count(data)      = 16
+  summary "data sum={sum(data)} (halves {sum(first_half)} + {sum(second_half)}; count={count(data)})";
+}

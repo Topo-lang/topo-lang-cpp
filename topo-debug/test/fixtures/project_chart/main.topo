@@ -1,0 +1,26 @@
+// project_chart — debug-view build fixture (sliced parallel views).
+//
+// Declares a `ChartData` debug entry whose `xs` and `ys` views slice the
+// host-side `double data[8]` array into two parallel halves, plus a
+// summary template. Exercises the `topo build` → main.topo-dbg.json
+// view-registry path for sliced views.
+//
+// Originally a render-fn end-to-end fixture; the `render` block was
+// removed because web-rendering is deliberately unimplemented —
+// SemanticAnalyzer rejects `render` blocks (parsed but no behavior).
+
+std::import("cstdint", int32_t);
+
+namespace app {
+  public:
+    type ChartData {
+      public:
+        int32_t data;
+    }
+}
+
+debug ChartData {
+  view xs from data[0..4];
+  view ys from data[4..8];
+  summary "xs=[{sample(xs)}] ys=[{sample(ys)}]";
+}

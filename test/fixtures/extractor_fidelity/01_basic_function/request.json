@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["add"],
+  "symbolTable": {
+    "add": {
+      "qualifiedName": "add",
+      "simpleName": "add"
+    }
+  }
+}

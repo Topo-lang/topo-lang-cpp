@@ -1,0 +1,12 @@
+[project]
+name = "visibility_cpp_pass_02"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+
+[visibility]
+mode = "force"

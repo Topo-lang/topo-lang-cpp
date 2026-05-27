@@ -1,0 +1,157 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "init": {
+            "args": [],
+            "callee": "Point::Point",
+            "fidelity": "source",
+            "kind": "call"
+          },
+          "kind": "vardecl",
+          "name": "p",
+          "type": {
+            "nameParts": [
+              "Point"
+            ]
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "assign",
+          "target": {
+            "fidelity": "source",
+            "kind": "memberaccess",
+            "member": "x_",
+            "object": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "p"
+            }
+          },
+          "value": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "memberaccess",
+              "member": "x_",
+              "object": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "this"
+              }
+            },
+            "op": "add",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "memberaccess",
+              "member": "x_",
+              "object": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "other"
+              }
+            }
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "assign",
+          "target": {
+            "fidelity": "source",
+            "kind": "memberaccess",
+            "member": "y_",
+            "object": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "p"
+            }
+          },
+          "value": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "memberaccess",
+              "member": "y_",
+              "object": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "this"
+              }
+            },
+            "op": "add",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "memberaccess",
+              "member": "y_",
+              "object": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "other"
+              }
+            }
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "args": [],
+            "callee": "Point::Point",
+            "fidelity": "source",
+            "kind": "call"
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "other",
+          "type": {
+            "isConst": true,
+            "modifier": "ref",
+            "nameParts": [
+              "Point"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "Point::add_point",
+      "returnType": {
+        "nameParts": [
+          "Point"
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [
+        {
+          "fidelity": "source",
+          "name": "x_",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        },
+        {
+          "fidelity": "source",
+          "name": "y_",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "Point"
+    }
+  ]
+}

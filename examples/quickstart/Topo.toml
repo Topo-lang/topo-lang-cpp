@@ -1,0 +1,26 @@
+[project]
+name = "quickstart"
+
+[topo]
+root = "topo/processor.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+standard = "c++17"
+output = "quickstart"
+
+[completeness]
+ignore_main = true
+ignore_constructors = true
+ignore_patterns = [
+    "orders::Order",
+    "orders::Order::*",
+    "orders::PaymentResult",
+    "orders::PaymentResult::*",
+    "orders::ShippingQuote",
+    "orders::ShippingQuote::*",
+    "orders::Invoice",
+    "orders::Invoice::*",
+    "order",
+]

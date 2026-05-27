@@ -1,0 +1,58 @@
+// pipeline.topo — data flow pipeline DAG with priority sections
+//
+// Features demonstrated: pipeline DAG (fork/join topology),
+//           priority sections (critical/low/background)
+
+import types;
+
+namespace pipeline {
+
+  // -- Pipeline DAG -------------------------------------------------
+  //
+  //   ingest --> validate --+--> transform ----+--> store --> notify
+  //                         +--> build_index --+
+  //
+  // Fork at validate: transform and build_index run independently.
+  // Join at store: both branches must complete before storing.
+
+  public:
+    priority(critical):
+    int run_pipeline(int source_id);
+
+    fn run_pipeline {
+      ingest -> validate;
+      validate -> transform;
+      validate -> build_index;
+      transform -> store;
+      build_index -> store;
+      store -> notify;
+      notify -> int;
+    }
+
+  protected:
+    int ingest(int source_id);
+    int validate(int raw_data);
+    int transform(int validated);
+    int build_index(int validated);
+    int store(int transformed, int indexed);
+    int notify(int store_result);
+
+  // -- Priority-differentiated operations ---------------------------
+
+  public:
+    priority(critical):
+    void flush_buffer(int buffer_id);
+
+    priority(low):
+    void compact_storage();
+    void merge_indices();
+
+    priority(background):
+    void collect_metrics();
+    void archive_processed(int batch_id);
+
+  private:
+    int parse_raw(int data);
+    int apply_schema(int parsed, const Schema& schema);
+    int build_segment(int data, int segment_size);
+}

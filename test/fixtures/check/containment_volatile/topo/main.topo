@@ -1,0 +1,4 @@
+namespace app {
+  public:
+    void poll_hardware();
+}

@@ -1,0 +1,10 @@
+[project]
+name = "import_path_fail"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+include = ["src"]

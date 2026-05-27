@@ -1,0 +1,4 @@
+namespace app {
+  public:
+    integer compute(integer x);
+}

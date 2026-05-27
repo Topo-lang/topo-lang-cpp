@@ -1,0 +1,13 @@
+// Purity check is OFF — violations in host code must not produce errors.
+
+namespace app {
+  public:
+    void run();
+    void compute();
+    void render();
+
+    fn run {
+        stage<1> compute();
+        stage<1> render();
+    }
+}

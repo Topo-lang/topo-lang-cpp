@@ -1,0 +1,338 @@
+# topo-lang-cpp/topo-check/analysis/catalog/CppSafePatterns.toml
+# C++ safety patterns whitelist — community-maintained
+# Non-external functions may only use listed patterns.
+# Unlisted = unsafe by default.
+
+[version]
+schema = 1
+
+# Safe C++ language constructs
+[constructs]
+safe = [
+    "if", "else", "for", "while", "do", "switch", "case", "default",
+    "break", "continue", "return",
+    "auto", "const", "constexpr", "consteval", "constinit",
+    "static_cast", "sizeof", "alignof", "decltype", "typeid",
+    "try", "catch", "throw",
+    "using", "typedef", "namespace",
+    "template", "typename", "concept", "requires",
+    "noexcept", "explicit", "inline", "virtual", "override", "final",
+    "enum", "struct", "class",
+    "nullptr", "true", "false",
+    "this", "static", "mutable",
+    "co_await", "co_yield", "co_return",
+]
+
+unsafe = [
+    "reinterpret_cast", "const_cast",
+    "asm", "__asm__", "__asm",
+    "volatile",
+    "goto",
+    "register",
+    "union",
+    "thread_local",
+]
+
+# Safe standard library headers (#include whitelist)
+[headers]
+safe = [
+    # Containers
+    "vector", "array", "deque", "list", "forward_list",
+    "map", "set", "unordered_map", "unordered_set",
+    "queue", "stack", "bitset",
+    # Algorithms & utilities
+    "algorithm", "numeric", "functional", "iterator",
+    "utility", "tuple", "optional", "variant", "any",
+    "string", "string_view", "charconv",
+    "memory",
+    "type_traits", "typeinfo", "typeindex",
+    "concepts", "ranges", "span",
+    "initializer_list", "compare",
+    # Math & numerics
+    "cmath", "complex", "valarray", "numbers", "ratio",
+    "limits", "climits", "cfloat", "cstdint", "cstddef",
+    "cinttypes", "bit",
+    # String handling
+    "cstring", "cctype", "cwchar", "cwctype",
+    # Exceptions
+    "exception", "stdexcept", "system_error",
+    "cassert",
+    # Formatting
+    "format", "locale", "iomanip", "ios", "iosfwd",
+    "sstream",
+    # Other safe
+    "random", "regex", "chrono",
+    "source_location", "version",
+    "coroutine",
+    "expected",
+    "mdspan",
+    "print",
+]
+
+# Default policy for non-whitelisted headers
+[headers.policy]
+system = "deny"       # <header> not in safe list -> UnsafeLevel::System
+user = "recursive"    # "header" (user quotes) -> scan its content recursively
+
+# Safe std:: symbols (for L2 LSP-resolved names)
+[stdlib]
+# Containers
+"std::vector" = "safe"
+"std::array" = "safe"
+"std::deque" = "safe"
+"std::list" = "safe"
+"std::forward_list" = "safe"
+"std::map" = "safe"
+"std::multimap" = "safe"
+"std::set" = "safe"
+"std::multiset" = "safe"
+"std::unordered_map" = "safe"
+"std::unordered_multimap" = "safe"
+"std::unordered_set" = "safe"
+"std::unordered_multiset" = "safe"
+"std::queue" = "safe"
+"std::priority_queue" = "safe"
+"std::stack" = "safe"
+"std::bitset" = "safe"
+"std::string" = "safe"
+"std::wstring" = "safe"
+"std::u8string" = "safe"
+"std::u16string" = "safe"
+"std::u32string" = "safe"
+"std::basic_string" = "safe"          # clangd resolves std::string to this
+"std::string_view" = "safe"
+"std::basic_string_view" = "safe"     # clangd resolves std::string_view to this
+"std::span" = "safe"
+# Smart pointers & memory
+"std::unique_ptr" = "safe"
+"std::shared_ptr" = "safe"
+"std::weak_ptr" = "safe"
+"std::make_unique" = "safe"
+"std::make_shared" = "safe"
+"std::allocator" = "safe"
+"std::allocator_traits" = "safe"
+"std::addressof" = "safe"
+# Move semantics & utilities
+"std::move" = "safe"
+"std::forward" = "safe"
+"std::swap" = "safe"
+"std::exchange" = "safe"
+"std::declval" = "safe"
+"std::as_const" = "safe"
+"std::ref" = "safe"
+"std::cref" = "safe"
+# Pair & tuple
+"std::pair" = "safe"
+"std::tuple" = "safe"
+"std::make_pair" = "safe"
+"std::make_tuple" = "safe"
+"std::tie" = "safe"
+"std::get" = "safe"
+"std::apply" = "safe"
+# Optional / variant / any
+"std::optional" = "safe"
+"std::variant" = "safe"
+"std::any" = "safe"
+"std::nullopt" = "safe"
+"std::monostate" = "safe"
+"std::visit" = "safe"
+"std::holds_alternative" = "safe"
+"std::get_if" = "safe"
+"std::in_place" = "safe"
+# Algorithms
+"std::sort" = "safe"
+"std::stable_sort" = "safe"
+"std::find" = "safe"
+"std::find_if" = "safe"
+"std::find_if_not" = "safe"
+"std::count" = "safe"
+"std::count_if" = "safe"
+"std::copy" = "safe"
+"std::copy_if" = "safe"
+"std::copy_n" = "safe"
+"std::fill" = "safe"
+"std::fill_n" = "safe"
+"std::transform" = "safe"
+"std::accumulate" = "safe"
+"std::reduce" = "safe"
+"std::inner_product" = "safe"
+"std::partial_sum" = "safe"
+"std::for_each" = "safe"
+"std::for_each_n" = "safe"
+"std::all_of" = "safe"
+"std::any_of" = "safe"
+"std::none_of" = "safe"
+"std::remove" = "safe"
+"std::remove_if" = "safe"
+"std::unique" = "safe"
+"std::reverse" = "safe"
+"std::rotate" = "safe"
+"std::partition" = "safe"
+"std::lower_bound" = "safe"
+"std::upper_bound" = "safe"
+"std::binary_search" = "safe"
+"std::equal_range" = "safe"
+"std::merge" = "safe"
+"std::min" = "safe"
+"std::max" = "safe"
+"std::minmax" = "safe"
+"std::clamp" = "safe"
+"std::min_element" = "safe"
+"std::max_element" = "safe"
+"std::minmax_element" = "safe"
+"std::next_permutation" = "safe"
+"std::prev_permutation" = "safe"
+"std::iota" = "safe"
+"std::adjacent_difference" = "safe"
+# Numeric / math
+"std::abs" = "safe"
+"std::ceil" = "safe"
+"std::floor" = "safe"
+"std::round" = "safe"
+"std::trunc" = "safe"
+"std::fmod" = "safe"
+"std::pow" = "safe"
+"std::sqrt" = "safe"
+"std::cbrt" = "safe"
+"std::exp" = "safe"
+"std::log" = "safe"
+"std::log2" = "safe"
+"std::log10" = "safe"
+"std::sin" = "safe"
+"std::cos" = "safe"
+"std::tan" = "safe"
+"std::asin" = "safe"
+"std::acos" = "safe"
+"std::atan" = "safe"
+"std::atan2" = "safe"
+"std::hypot" = "safe"
+"std::isnan" = "safe"
+"std::isinf" = "safe"
+"std::isfinite" = "safe"
+"std::numeric_limits" = "safe"
+"std::gcd" = "safe"
+"std::lcm" = "safe"
+"std::midpoint" = "safe"
+"std::lerp" = "safe"
+# String conversion
+"std::to_string" = "safe"
+"std::to_wstring" = "safe"
+"std::stoi" = "safe"
+"std::stol" = "safe"
+"std::stoll" = "safe"
+"std::stoul" = "safe"
+"std::stoull" = "safe"
+"std::stof" = "safe"
+"std::stod" = "safe"
+"std::stold" = "safe"
+"std::from_chars" = "safe"
+"std::to_chars" = "safe"
+# Iterators
+"std::begin" = "safe"
+"std::end" = "safe"
+"std::cbegin" = "safe"
+"std::cend" = "safe"
+"std::rbegin" = "safe"
+"std::rend" = "safe"
+"std::size" = "safe"
+"std::ssize" = "safe"
+"std::empty" = "safe"
+"std::data" = "safe"
+"std::advance" = "safe"
+"std::distance" = "safe"
+"std::next" = "safe"
+"std::prev" = "safe"
+"std::back_inserter" = "safe"
+"std::front_inserter" = "safe"
+"std::inserter" = "safe"
+# Type traits (compile-time, zero cost)
+"std::is_same" = "safe"
+"std::is_base_of" = "safe"
+"std::is_convertible" = "safe"
+"std::enable_if" = "safe"
+"std::conditional" = "safe"
+"std::decay" = "safe"
+"std::remove_reference" = "safe"
+"std::remove_cv" = "safe"
+"std::remove_pointer" = "safe"
+"std::add_pointer" = "safe"
+"std::integral_constant" = "safe"
+"std::true_type" = "safe"
+"std::false_type" = "safe"
+"std::void_t" = "safe"
+"std::conjunction" = "safe"
+"std::disjunction" = "safe"
+"std::negation" = "safe"
+"std::is_invocable" = "safe"
+"std::invoke_result" = "safe"
+# Functional
+"std::function" = "safe"
+"std::bind" = "safe"
+"std::invoke" = "safe"
+"std::plus" = "safe"
+"std::minus" = "safe"
+"std::multiplies" = "safe"
+"std::divides" = "safe"
+"std::modulus" = "safe"
+"std::negate" = "safe"
+"std::equal_to" = "safe"
+"std::not_equal_to" = "safe"
+"std::greater" = "safe"
+"std::less" = "safe"
+"std::greater_equal" = "safe"
+"std::less_equal" = "safe"
+"std::hash" = "safe"
+# Chrono (time, no I/O)
+"std::chrono::system_clock" = "safe"
+"std::chrono::steady_clock" = "safe"
+"std::chrono::high_resolution_clock" = "safe"
+"std::chrono::duration" = "safe"
+"std::chrono::time_point" = "safe"
+"std::chrono::duration_cast" = "safe"
+"std::chrono::milliseconds" = "safe"
+"std::chrono::microseconds" = "safe"
+"std::chrono::nanoseconds" = "safe"
+"std::chrono::seconds" = "safe"
+"std::chrono::minutes" = "safe"
+"std::chrono::hours" = "safe"
+# Exceptions
+"std::exception" = "safe"
+"std::runtime_error" = "safe"
+"std::logic_error" = "safe"
+"std::invalid_argument" = "safe"
+"std::out_of_range" = "safe"
+"std::overflow_error" = "safe"
+"std::underflow_error" = "safe"
+"std::domain_error" = "safe"
+"std::length_error" = "safe"
+"std::range_error" = "safe"
+"std::bad_alloc" = "safe"
+"std::bad_cast" = "safe"
+"std::bad_typeid" = "safe"
+"std::current_exception" = "safe"
+"std::rethrow_exception" = "safe"
+"std::make_exception_ptr" = "safe"
+# Regex (in-memory)
+"std::regex" = "safe"
+"std::smatch" = "safe"
+"std::regex_search" = "safe"
+"std::regex_match" = "safe"
+"std::regex_replace" = "safe"
+# Random (in-memory)
+"std::mt19937" = "safe"
+"std::mt19937_64" = "safe"
+"std::random_device" = "safe"
+"std::uniform_int_distribution" = "safe"
+"std::uniform_real_distribution" = "safe"
+"std::normal_distribution" = "safe"
+"std::bernoulli_distribution" = "safe"
+# Format (in-memory string formatting)
+"std::format" = "safe"
+"std::format_to" = "safe"
+"std::vformat" = "safe"
+# In-memory streams
+"std::stringstream" = "safe"
+"std::istringstream" = "safe"
+"std::ostringstream" = "safe"
+# Assert
+"std::terminate" = "safe"

@@ -1,0 +1,10 @@
+TopoFile
+  NamespaceDecl 'orders'
+    VisibilitySection 'public'
+      HandlerDecl 'parse(str raw) -> record<id: int, amount: float>'
+      HandlerDecl 'validate(record<id: int, amount: float> o) -> record<id: int, amount: float>'
+      HandlerDecl 'persist(record<id: int, amount: float> o) -> bool'
+      FlowBlock 'order_pipeline'
+        Edge parse -> validate
+        Edge validate -> persist
+        Edge persist -> void [terminal]

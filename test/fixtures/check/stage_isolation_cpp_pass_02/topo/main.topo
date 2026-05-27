@@ -1,0 +1,14 @@
+// Same-stage calls are allowed: functions in the same stage may
+// invoke one another at the host level.
+
+namespace app {
+  public:
+    void run();
+    void taskA();
+    void taskB();
+
+    fn run {
+        stage<1> taskA();
+        stage<1> taskB();
+    }
+}

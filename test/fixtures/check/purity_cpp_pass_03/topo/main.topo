@@ -1,0 +1,14 @@
+// Non-parallel (sequential) stages are allowed to write globals.
+// Purity only checks functions that share a stage number with other calls.
+
+namespace app {
+  public:
+    void run();
+    void init();
+    void finalize();
+
+    fn run {
+        stage<1> init();
+        stage<2> finalize();
+    }
+}

@@ -1,0 +1,13 @@
+// Pure parallel stage functions that operate only on parameters and locals.
+
+namespace app {
+  public:
+    void run();
+    void transform();
+    void validate();
+
+    fn run {
+        stage<1> transform();
+        stage<1> validate();
+    }
+}

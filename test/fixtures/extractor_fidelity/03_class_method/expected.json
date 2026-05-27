@@ -1,0 +1,82 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "kind": "assign",
+          "target": {
+            "fidelity": "source",
+            "kind": "memberaccess",
+            "member": "value_",
+            "object": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "this"
+            }
+          },
+          "value": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "memberaccess",
+              "member": "value_",
+              "object": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "this"
+              }
+            },
+            "op": "add",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "literal",
+              "litKind": "integer",
+              "value": "1"
+            }
+          }
+        },
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "memberaccess",
+            "member": "value_",
+            "object": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "this"
+            }
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [],
+      "qualifiedName": "Counter::increment",
+      "returnType": {
+        "nameParts": [
+          "int"
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [
+        {
+          "fidelity": "source",
+          "name": "value_",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "Counter"
+    }
+  ]
+}

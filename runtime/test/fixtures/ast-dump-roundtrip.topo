@@ -1,0 +1,12 @@
+namespace orders {
+    public:
+        handler parse(str raw) -> record<id: int, amount: float>;
+        handler validate(record<id: int, amount: float> o) -> record<id: int, amount: float>;
+        handler persist(record<id: int, amount: float> o) -> bool;
+
+    flow order_pipeline {
+        parse -> validate;
+        validate -> persist;
+        persist -> void;
+    }
+}

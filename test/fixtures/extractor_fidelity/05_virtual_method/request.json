@@ -1,0 +1,10 @@
+{
+  "files": ["input.cpp"],
+  "functions": ["Square::area"],
+  "symbolTable": {
+    "Square::area": {
+      "qualifiedName": "Square::area",
+      "simpleName": "area"
+    }
+  }
+}

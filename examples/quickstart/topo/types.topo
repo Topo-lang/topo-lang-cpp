@@ -1,0 +1,47 @@
+// types.topo — order processing domain types
+
+using int = std::cpp17::int;
+using bool = std::cpp17::bool;
+using double = std::cpp17::double;
+
+namespace orders {
+  public:
+    type Order {
+      public:
+        explicit Order(int id, int customer_id);
+        int id() const;
+        int customer_id() const;
+        double total() const;
+        int item_count() const;
+        bool is_valid() const;
+      private:
+        int order_id;
+        int cust_id;
+        double amount;
+    }
+
+    type PaymentResult {
+      public:
+        bool approved() const;
+        int transaction_id() const;
+        double charged_amount() const;
+    }
+
+    type ShippingQuote {
+      public:
+        double cost() const;
+        int estimated_days() const;
+        int carrier_id() const;
+    }
+
+    type Invoice {
+      public:
+        explicit Invoice(int order_id, int transaction_id, double total);
+        int number() const;
+        double grand_total() const;
+        bool is_finalized() const;
+      private:
+        int inv_number;
+        double total;
+    }
+}

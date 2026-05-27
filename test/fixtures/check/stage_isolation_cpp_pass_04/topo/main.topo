@@ -1,0 +1,13 @@
+// Stage isolation is OFF — violations in host code must not produce errors.
+
+namespace app {
+  public:
+    void run();
+    void init();
+    void process();
+
+    fn run {
+        stage<1> init();
+        stage<2> process();
+    }
+}

@@ -1,0 +1,12 @@
+[project]
+name = "purity_cpp_fail_03"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+
+[purity]
+mode = "force"

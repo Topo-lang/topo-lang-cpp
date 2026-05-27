@@ -1,0 +1,14 @@
+# Plan 41 T3 (C1) — checked-in stackcollapse-folded fixture for the
+# `topo profile trace --mode=sampling --sampling-input` e2e test. The
+# format matches Brendan Gregg's `stackcollapse-perf.pl` output: one
+# stack per line, frames root -> leaf separated by `;`, trailing
+# integer = sample count. Comments (#) and blank lines are skipped.
+#
+# Total samples: 8 + 5 + 4 + 2 + 1 = 20 across 5 unique stacks.
+# `compute` appears in 17 / 20 samples (everything but the idle wait
+# and io_flush paths).
+main;init;parse_config 1
+main;compute;kernel;inner_loop 8
+main;compute;kernel;reduce 5
+main;compute;materialize 4
+main;io_flush;syscall_write 2

@@ -1,0 +1,58 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "memberaccess",
+            "member": "width_",
+            "object": {
+              "fidelity": "source",
+              "kind": "varref",
+              "name": "b"
+            }
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [
+        {
+          "name": "b",
+          "type": {
+            "isConst": true,
+            "modifier": "ref",
+            "nameParts": [
+              "Box"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "getBoxWidth",
+      "returnType": {
+        "nameParts": [
+          "int"
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [
+        {
+          "fidelity": "source",
+          "name": "width_",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "Box"
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "functions": [
+    {
+      "body": [
+        {
+          "fidelity": "source",
+          "kind": "return",
+          "value": {
+            "fidelity": "source",
+            "kind": "binaryop",
+            "lhs": {
+              "fidelity": "source",
+              "kind": "memberaccess",
+              "member": "side_",
+              "object": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "this"
+              }
+            },
+            "op": "mul",
+            "rhs": {
+              "fidelity": "source",
+              "kind": "memberaccess",
+              "member": "side_",
+              "object": {
+                "fidelity": "source",
+                "kind": "varref",
+                "name": "this"
+              }
+            }
+          }
+        }
+      ],
+      "fidelity": "source",
+      "params": [],
+      "qualifiedName": "Square::area",
+      "returnType": {
+        "nameParts": [
+          "int"
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "fidelity": "source",
+      "fields": [],
+      "qualifiedName": "Shape"
+    },
+    {
+      "baseClassKinds": [
+        "class"
+      ],
+      "baseClasses": [
+        {
+          "nameParts": [
+            "Shape"
+          ]
+        }
+      ],
+      "fidelity": "source",
+      "fields": [
+        {
+          "fidelity": "source",
+          "name": "side_",
+          "type": {
+            "nameParts": [
+              "int"
+            ]
+          }
+        }
+      ],
+      "qualifiedName": "Square"
+    }
+  ]
+}

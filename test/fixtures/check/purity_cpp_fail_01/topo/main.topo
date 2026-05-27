@@ -1,0 +1,15 @@
+// Purity violation: parallel stage function writes to a static global.
+// C++ functions at global scope (no namespace wrapper) so the extractor
+// emits simple names that match the .topo calledFunctions entries.
+
+namespace app {
+  public:
+    void run();
+    void compute();
+    void render();
+
+    fn run {
+        stage<1> compute();
+        stage<1> render();
+    }
+}

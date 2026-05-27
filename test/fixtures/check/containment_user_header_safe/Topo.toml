@@ -1,0 +1,13 @@
+[project]
+name = "containment_user_header_safe"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+include = ["include"]
+
+[containment]
+mode = "force"

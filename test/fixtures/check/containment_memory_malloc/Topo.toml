@@ -1,0 +1,12 @@
+[project]
+name = "containment_memory_malloc"
+
+[topo]
+root = "topo/main.topo"
+
+[build]
+language = "cpp"
+sources = ["src/*.cpp"]
+
+[containment]
+mode = "force"
