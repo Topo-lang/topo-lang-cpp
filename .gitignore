@@ -3,6 +3,9 @@
 /build-*/
 /out/
 /cmake-build-*/
+# Nested build/ dirs (test fixtures with their own CMake subprojects,
+# e.g. test/fixtures/check/containment_l2_deep_only/build/).
+build/
 
 # CMake
 CMakeCache.txt
