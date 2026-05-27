@@ -1,6 +1,6 @@
 // CppExtractorFidelityTest.cpp
 //
-// M4.2 — Golden fidelity tests for topo-extract-cpp.
+// Golden fidelity tests for topo-extract-cpp.
 //
 // For each fixture directory under TOPO_CPP_FIDELITY_FIXTURES_DIR:
 //   - read `request.json`
@@ -25,7 +25,7 @@
 //
 // Golden bootstrap / update semantics
 // -----------------------------------
-// The task M4.2 forbids hand-writing golden JSON — goldens must be produced
+// Golden JSON must not be hand-written — goldens must be produced
 // by the extractor itself. To support that workflow without requiring a
 // separate bootstrap script, this driver uses snapshot-test semantics:
 //
@@ -808,11 +808,11 @@ TEST(CppExtractorFidelity, TemplateTemplateParamRecoveredIntoTemplateParams) {
     EXPECT_EQ(holder->value("fidelity", "source"), "source") << holder->dump();
 }
 
-// Sanity check: the fixture root must contain at least 10 entries (M4.2).
+// Sanity check: the fixture root must contain at least 10 entries.
 TEST(CppExtractorFidelity, FixtureRootHasAtLeastTenEntries) {
     auto dirs = discoverFixtures();
     EXPECT_GE(dirs.size(), 10u)
-        << "M4.2 acceptance: at least 10 extractor fidelity fixtures required;"
+        << "fixture acceptance: at least 10 extractor fidelity fixtures required;"
            " found "
         << dirs.size() << " in " << TOPO_CPP_FIDELITY_FIXTURES_DIR;
 }
