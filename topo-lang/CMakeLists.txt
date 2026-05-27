@@ -1,14 +1,15 @@
 add_library(TopoCppPlugin
     CppPlugin.cpp
 )
+add_library(topo::lang-cpp::TopoCppPlugin ALIAS TopoCppPlugin)
 target_include_directories(TopoCppPlugin
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/topo/lang-cpp/plugin>
-    PRIVATE ${CMAKE_SOURCE_DIR}/topo-check/analysis
-    PRIVATE ${CMAKE_SOURCE_DIR}/topo-check/runner
-    PRIVATE ${CMAKE_SOURCE_DIR}/topo-transpile
-    PRIVATE ${CMAKE_SOURCE_DIR}/topo-lsp
+    PRIVATE ${PROJECT_SOURCE_DIR}/topo-check/analysis
+    PRIVATE ${PROJECT_SOURCE_DIR}/topo-check/runner
+    PRIVATE ${PROJECT_SOURCE_DIR}/topo-transpile
+    PRIVATE ${PROJECT_SOURCE_DIR}/topo-lsp
 )
 target_link_libraries(TopoCppPlugin PUBLIC
     topo::lang::TopoLang

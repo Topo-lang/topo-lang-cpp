@@ -42,7 +42,7 @@ target_link_libraries(TopoCppAnalysis
 # should override via -DTOPO_SOURCE_DIR=<your-checkout-root>. The runtime
 # code returns false safely when the catalog can't be located.
 target_compile_definitions(TopoCppAnalysis PRIVATE
-    TOPO_SOURCE_DIR="${CMAKE_SOURCE_DIR}/.."
+    TOPO_SOURCE_DIR="${PROJECT_SOURCE_DIR}/.."
 )
 topo_set_compiler_flags(TopoCppAnalysis)
 

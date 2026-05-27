@@ -40,6 +40,7 @@ message(STATUS "topo-debug-cpp: using liblldb at ${LLDB_LIBRARY}")
 # pick it up as topo::lang-cpp::TopoDebugAdapter. STATIC (not OBJECT) so the
 # install/EXPORT pipeline can carry it across repos.
 add_library(TopoDebugAdapter STATIC adapter.cpp)
+add_library(topo::lang-cpp::TopoDebugAdapter ALIAS TopoDebugAdapter)
 target_include_directories(TopoDebugAdapter PUBLIC
     $<BUILD_INTERFACE:${_LLDB_INCLUDE_DIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>

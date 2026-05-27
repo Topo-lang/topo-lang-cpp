@@ -47,6 +47,8 @@ function(topo_set_llvm_flags target)
     target_compile_definitions(${target} PRIVATE ${LLVM_DEFINITIONS})
 endfunction()
 
-function(topo_apply_std_pch target)
-    # PCH stub — no-op in standalone topo-lang-cpp.
-endfunction()
+if(NOT COMMAND topo_apply_std_pch)
+    function(topo_apply_std_pch target)
+        # PCH stub — no-op in standalone topo-lang-cpp.
+    endfunction()
+endif()

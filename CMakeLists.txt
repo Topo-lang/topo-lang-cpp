@@ -19,14 +19,19 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(TopoLangCppCompilerFlags)
 
 # ── Upstream Topo packages ────────────────────────────
-find_package(topo-core CONFIG REQUIRED)
-find_package(topo-lang CONFIG REQUIRED)
+if(NOT TARGET topo::core::TopoBasic)
+    find_package(topo-core CONFIG REQUIRED)
+endif()
+if(NOT TARGET topo::lang::TopoLang)
+    find_package(topo-lang CONFIG REQUIRED)
+endif()
 
 # ── External dependencies ─────────────────────────────
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # Header-only interface library for C++ runtime headers
 add_library(topo-lang-cpp-headers INTERFACE)
+add_library(topo::lang-cpp::topo-lang-cpp-headers ALIAS topo-lang-cpp-headers)
 target_include_directories(topo-lang-cpp-headers INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/runtime/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -51,7 +56,9 @@ if(TOPO_LANG_CPP_ENABLE_LLVM)
     message(STATUS "topo-lang-cpp: LLVM ${LLVM_VERSION} enabled")
     # TopoCppDriver consumes topo-llvm headers (topo/Backend/BackendTypes.h)
     # via the imported topo::llvm::topo-llvm-headers INTERFACE target.
-    find_package(topo-llvm CONFIG REQUIRED)
+    if(NOT TARGET topo::llvm::TopoBackend)
+        find_package(topo-llvm CONFIG REQUIRED)
+    endif()
     # Existing TOPO_ENABLE_LLVM-gated subdir CMakeLists rely on this name
     # to fire their content.
     set(TOPO_ENABLE_LLVM ON)
