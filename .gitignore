@@ -1,6 +1,5 @@
 # Build directories
 /build/
-/build-*/
 /out/
 /cmake-build-*/
 # Nested build/ dirs (test fixtures with their own CMake subprojects,
