@@ -40,25 +40,37 @@ set_property(TARGET topo-lang-cpp-integration-tests PROPERTY JOB_POOL_LINK llvm_
 gtest_discover_tests(topo-lang-cpp-integration-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "integration;lang-cpp" TIMEOUT 60)
 endif()
 
-# Checker E2E tests (completeness + containment + purity + visibility + stage-isolation)
-add_executable(topo-lang-cpp-check-tests
-    e2e/TestMain.cpp
-    e2e/CppCompletenessTest.cpp
-    e2e/CppContainmentTest.cpp
-    e2e/CppImportPathTest.cpp
-    e2e/CppPurityTest.cpp
-    e2e/CppVisibilityTest.cpp
-    e2e/CppStageIsolationTest.cpp
-)
-target_link_libraries(topo-lang-cpp-check-tests PRIVATE
-    TopoCheckRunner TopoCppPlugin
-    GTest::gtest
-)
-target_compile_definitions(topo-lang-cpp-check-tests PRIVATE
-    TOPO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/check"
-)
-topo_set_compiler_flags(topo-lang-cpp-check-tests)
-gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain;checker;lang-cpp" TIMEOUT 60)
+# Checker E2E tests (completeness + containment + purity + visibility + stage-isolation).
+# Gated on TopoCppPlugin (added in topo-lang-cpp/CMakeLists.txt only when
+# TOPO_LANG_CPP_ENABLE_LLVM=ON — the plugin aggregator pulls PRIVATE includes
+# from the LLVM-gated topo-build/topo-debug subdirs). TestMain.cpp must call
+# topo::lang::registerCppPlugin() before tests run, so the suite cannot
+# stand on its own without the plugin. TopoCppLSP is unconditional and
+# provides ClangdBridge for CppContainmentTest.
+if(TARGET TopoCppPlugin)
+    add_executable(topo-lang-cpp-check-tests
+        e2e/TestMain.cpp
+        e2e/CppCompletenessTest.cpp
+        e2e/CppContainmentTest.cpp
+        e2e/CppImportPathTest.cpp
+        e2e/CppPurityTest.cpp
+        e2e/CppVisibilityTest.cpp
+        e2e/CppStageIsolationTest.cpp
+    )
+    target_link_libraries(topo-lang-cpp-check-tests PRIVATE
+        TopoCheckRunner TopoCppPlugin TopoCppLSP
+        GTest::gtest
+    )
+    target_compile_definitions(topo-lang-cpp-check-tests PRIVATE
+        TOPO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/check"
+    )
+    topo_set_compiler_flags(topo-lang-cpp-check-tests)
+    gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain;checker;lang-cpp" TIMEOUT 60)
+else()
+    message(STATUS "topo-lang-cpp tests: checker-e2e suite (topo-lang-cpp-check-tests) "
+                   "skipped — TopoCppPlugin not built (requires "
+                   "TOPO_LANG_CPP_ENABLE_LLVM=ON).")
+endif()
 
 # Extractor fidelity tests: validate topo-extract-cpp output against
 # golden fixtures for symbol-extraction parity.
