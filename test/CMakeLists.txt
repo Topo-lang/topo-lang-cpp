@@ -69,6 +69,7 @@ gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES L
 # CppExtractorFidelityTest.cpp for rationale — PipedProcess is intended for
 # JSON-RPC bidirectional framing and would deadlock on one-shot extraction).
 if(TOPO_ENABLE_LLVM)
+if(TARGET topo-extract-cpp)
 add_executable(topo-cpp-extractor-fidelity-tests
     unit/CppExtractorFidelityTest.cpp
 )
@@ -85,6 +86,13 @@ topo_set_compiler_flags(topo-cpp-extractor-fidelity-tests)
 gtest_discover_tests(topo-cpp-extractor-fidelity-tests DISCOVERY_TIMEOUT 30
     PROPERTIES LABELS "toolchain;lang-cpp;extractor-fidelity" TIMEOUT 60
     ENVIRONMENT "TOPO_EXTRACT_ROOT=${PROJECT_SOURCE_DIR}")
+else()
+message(STATUS
+    "topo-lang-cpp: skipping topo-cpp-extractor-fidelity-tests — "
+    "target 'topo-extract-cpp' not in scope "
+    "(topo-lang-cpp opted out via TOPO_LANG_CPP_ENABLE_LLVM=OFF; "
+    "the extractor subdir at topo-check/extractor/ was not added).")
+endif()
 endif()
 
 # Feature dimension labels
