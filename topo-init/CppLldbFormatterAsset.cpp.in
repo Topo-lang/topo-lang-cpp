@@ -1,7 +1,7 @@
 // GENERATED — do not edit. Produced by topo-lang-cpp/topo-init/CMakeLists.txt
 // (configure_file) from topo-lang-cpp/topo-debug/lldb_formatter.py. Embeds the
-// Plan 41 T2 Path 1 native-lldb formatter so `topo init` can lay down a
-// self-contained scaffold (no dependency on an installed Topo path).
+// native-lldb formatter script so `topo init` can lay down a self-contained
+// scaffold (no dependency on an installed Topo path).
 
 namespace topo::lang {
 

@@ -60,7 +60,8 @@ target_compile_definitions(topo-lang-cpp-check-tests PRIVATE
 topo_set_compiler_flags(topo-lang-cpp-check-tests)
 gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain;checker;lang-cpp" TIMEOUT 60)
 
-# Extractor fidelity tests (M4.2)
+# Extractor fidelity tests: validate topo-extract-cpp output against
+# golden fixtures for symbol-extraction parity.
 # Spawns topo-extract-cpp subprocess against golden fixtures; the extractor
 # itself requires libclang via the bundled LLVM, so this test is gated on
 # TOPO_ENABLE_LLVM. The test driver uses only stdlib + posix_spawn/CreateProcess
