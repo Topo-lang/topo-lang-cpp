@@ -1,7 +1,7 @@
-// Plan 38 Batch 2.3 — C++ per-language fixture covering the 6 first-batch
+// C++ per-language fixture covering the 6 first-batch
 // stdlib bridging types. Pairs with minimal.cpp (matching signatures).
 //
-// Mapping verified by CppEmitter (Plan 38 §4):
+// Mapping verified by CppEmitter:
 //   bool          -> bool
 //   i64           -> std::int64_t
 //   f64           -> double
@@ -18,7 +18,7 @@ namespace stdlib_smoke {
     optional<i64> parentOf(i64 id);
     slice<f64> samples();
 
-    // All-types-in-one signature — mirrors the Plan 38 §7 acceptance check.
+    // All-types-in-one signature — mirrors the stdlib acceptance check.
     optional<i64> boundary(i64 id,
                            string name,
                            optional<bool> flag,

@@ -1,4 +1,4 @@
-# Plan 41 T3 (C1) — checked-in stackcollapse-folded fixture for the
+# Checked-in stackcollapse-folded fixture for the
 # `topo profile trace --mode=sampling --sampling-input` e2e test. The
 # format matches Brendan Gregg's `stackcollapse-perf.pl` output: one
 # stack per line, frames root -> leaf separated by `;`, trailing

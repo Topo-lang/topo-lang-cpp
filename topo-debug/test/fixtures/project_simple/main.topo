@@ -1,4 +1,4 @@
-// Plan 41 Phase 3a — project-level E2E fixture.
+// Project-level E2E fixture.
 //
 // Declares a `Buf` debug entry with one literal-bounded view `first_half`
 // over the host-side `int data[16]` array. The matching main.cpp puts the
@@ -22,7 +22,7 @@ namespace app {
 debug Buf {
   view first_half from data[0..8];
   view second_half from data[8..16];
-  // Plan 45 Phase 1 — `{ <query-expr> }` placeholders are evaluated by the
+  // `{ <query-expr> }` placeholders are evaluated by the
   // summary renderer against the breakpoint's frame. `{{` / `}}` escape
   // literal braces. At the breakpoint on line 13 of main.cpp:
   //   sum(data)        = 136

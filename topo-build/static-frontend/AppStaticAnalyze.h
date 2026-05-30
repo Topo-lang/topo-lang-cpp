@@ -15,8 +15,10 @@
 // `clang -Xclang -ast-dump=json` as a SUBPROCESS — the same "clang tools
 // via subprocess" pattern the L2 containment path uses for `clangd`. No
 // LibTooling / libclang link dependency. The clang binary is resolved by
-// topo::platform::resolveLLVMTool("clang"), exactly as
-// topo-lang-cpp/topo-build/CppDriver.cpp resolves `clang++`.
+// topo::platform::resolveLLVMTool("clang"). (The topo-build C++ compile/link
+// driver CppDriver.cpp instead uses the host compiler path in cfg.hostCompilerPath
+// — set by the backend tool's resolveBundledClangxx — and only calls
+// resolveLLVMTool for llvm-ar.)
 //
 // Why clang-AST over the regex MVP: the AST is post-preprocessor and
 // fully type-resolved, which directly eliminates the five constructs the

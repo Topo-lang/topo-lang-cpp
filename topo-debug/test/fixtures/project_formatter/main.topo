@@ -1,4 +1,4 @@
-// Plan 41 T2 Path 1 — native-lldb formatter ("福利路径") E2E fixture.
+// Native-lldb formatter E2E fixture.
 //
 // Declares a `Mesh` debug entry. The matching main.cpp puts a `Mesh`
 // VALUE on the stack (not a bare array) whose `verts` / `tris` columns

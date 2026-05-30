@@ -1,9 +1,8 @@
-// Plan 41 Phase 4 + Plan 45 Phase 1 — project-level multi-variable
-// summary fixture.
+// Project-level multi-variable summary fixture.
 //
 // Two host arrays in scope (`int a[4]`, `int b[4]`) — the summary
 // template references both, so resolving it requires the multi-var
-// adapter protocol (Phase 4). The summary batching refactor packs all
+// adapter protocol. The summary batching refactor packs all
 // placeholder vars into a single adapter spawn.
 
 std::import("cstdint", int32_t);
