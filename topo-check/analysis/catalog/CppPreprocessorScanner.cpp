@@ -85,8 +85,7 @@ std::vector<DetectedCallSite> CppPreprocessorScanner::scanExpanded(const std::st
     // 2. Build line mapping (preprocessed → original)
     auto lineMap = buildLineMap(ppOutput);
 
-    // 3. Write preprocessed output to a unique RAII temp file. Audit
-    //    issue topo-lang-cpp-preprocessor-scanner-hardcoded-tmp: the
+    // 3. Write preprocessed output to a unique RAII temp file. The
     //    previous code wrote to a hardcoded predictable path under
     //    the POSIX temp dir — (a) broken on Windows (no such path
     //    by default), (b) a symlink-attack target that a pre-created

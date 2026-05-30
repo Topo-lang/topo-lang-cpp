@@ -328,7 +328,7 @@ inline ConfigValue parse_scalar_token(const std::string& tok) {
     if (tok == "false") return ConfigValue(false);
     // A bare token containing ':' or a 'T'/'Z' date shape would be a TOML
     // datetime — surfaced as the Datetime tag so the model rejects it
-    // with the roadmap-gap message, exactly like the Python reference.
+    // with the stdlib-bridging-gap message, exactly like the Python reference.
     bool looks_datetime = false;
     if (tok.size() >= 8) {
         // crude: YYYY-MM-DD or contains a time separator with digits.

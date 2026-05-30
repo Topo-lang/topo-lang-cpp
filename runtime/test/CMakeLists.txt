@@ -18,8 +18,8 @@ target_include_directories(topo-app-static-slice-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include   # topo/app*.h
 )
 # app_readback.h / app_check.h now drive subprocesses through
-# topo::platform::runProcessCapture (audit fix
-# topo-lang-cpp-app-readback-shell-popen) — the slice test links
+# topo::platform::runProcessCapture (argv-style exec replacing
+# shell-string popen) — the slice test links
 # TopoPlatform so the new argv-style entry points and
 # topo::platform::TempFile resolve. The runtime headers themselves
 # stay self-contained for downstream consumers; only the link line of

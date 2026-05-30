@@ -10,7 +10,7 @@
 
 // Read .topo back into a Graph by parsing it with the real toolchain.
 //
-// Round-trip fidelity is the proposal's decisive constraint. To prove it
+// Round-trip fidelity is topo-app's decisive constraint. To prove it
 // honestly, read-back must go through the *actual* Topo parser, not a
 // C++ re-implementation of the grammar (which could agree with the
 // emitter by accident). We invoke `topo --ast-dump` and reconstruct the
@@ -70,7 +70,7 @@ struct ProcResult {
 // Run a binary with the given argv vector, capturing stdout (stderr
 // folded in so a parse rejection's diagnostic is visible to the caller).
 //
-// Audit issue topo-lang-cpp-app-readback-shell-popen: previously this
+// Shell-popen hardening: previously this
 // header called ``popen()`` with a shell-string concatenation, which
 // (a) failed to compile on Windows (no POSIX <sys/wait.h>) and (b)
 // opened a shell-injection surface because ``TOPO_BIN`` /
@@ -78,7 +78,7 @@ struct ProcResult {
 // quoting on the env-var side. Routing through
 // ``topo::platform::runProcessCapture`` uses argv-array exec (no
 // shell, no quoting needed) and inherits the cross-platform impl in
-// TopoPlatform. Per principle ``input-validation-at-system-boundary``
+// TopoPlatform. Validating user input at the system boundary,
 // the user-controlled env-var paths must never reach a shell.
 inline ProcResult run_capture(const std::string& executable,
                               const std::vector<std::string>& args) {
@@ -102,7 +102,7 @@ inline TypeRef scalar_from_spelling(const std::string& s) {
 namespace detail {
 
 // "record<id: int, amount: float>" -> TypeRef. Record fields in this
-// bridge are scalar-typed (one nesting level, matching the proposal's
+// bridge are scalar-typed (one nesting level, matching the topo-app
 // order example), so a top-level comma split is sufficient — identical
 // assumption to the Python reference's _parse_type.
 inline TypeRef parse_type(std::string spec) {
@@ -144,8 +144,8 @@ inline TypeRef parse_type(std::string spec) {
 // Audit fix: the temp file is created via ``topo::platform::TempFile``
 // (RAII, unique-name probe with O_CREAT|O_EXCL on POSIX / CREATE_NEW
 // on Windows); a predictable ``temp_path`` was a symlink-attack and
-// concurrent-corruption surface (sister issue
-// ``topo-lang-cpp-app-static-wrapped-temp-collision``). The subprocess
+// concurrent-corruption surface (same class as the wrapped-temp
+// collision in the static front-end). The subprocess
 // is dispatched argv-style via ``topo::platform::runProcessCapture``
 // with no shell — the user-controlled ``TOPO_BIN`` env var is therefore
 // never expanded by ``/bin/sh -c``.

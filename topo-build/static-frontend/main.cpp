@@ -3,8 +3,8 @@
 //
 // This is the clang-AST upgrade of the regex MVP that ships header-only
 // as topo-lang-cpp/runtime/include/topo/app_static.h. It is the
-// `topo-build`-side static-analysis front-end the topo-app rollout
-// roadmap assigns to the compile-time track: it executes none of the
+// `topo-build`-side static-analysis front-end on the compile-time
+// track: it executes none of the
 // analyzed program — it runs `clang -ast-dump=json` and walks the AST.
 //
 // Structure mirrors the delivered Rust front-end

@@ -8,18 +8,18 @@
 
 // Graph -> .topo emission.
 //
-// This is the deterministic mapping the proposal commits to
+// This is the deterministic mapping the topo-app design commits to
 // ("deterministic rules for producing the .topo, not black-magic
 // inference"), not inference:
 //
 //   - handler A's output feeds handler B's input  -> edge A -> B
 //   - logic chain A -> B -> C                      -> flow with edges
 //   - the flow's stage topology is left to core PipelineAnalysis; the
-//     emitter only states edges, never stage numbers (handler/flow spec:
-//     flow body accepts pipeline edges only).
+//     emitter only states edges, never stage numbers (a flow body
+//     accepts pipeline edges only).
 //
 // The output is human-readable and hand-editable by construction — that
-// is the proposal's decisive round-trip constraint, so the emitter
+// is topo-app's decisive round-trip constraint, so the emitter
 // favours a stable, obvious layout over compactness. Byte-for-byte the
 // same shape as the Python reference's _emit.py, the only host-specific
 // difference being the scalar-alias preamble: the Python host aliases

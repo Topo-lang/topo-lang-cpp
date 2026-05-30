@@ -3,7 +3,7 @@
 
 // @stability provisional
 // User-facing config bridge for topo-app. Tracks the Python reference
-// config.py one-to-one; will settle once the proposal's config grid
+// config.py one-to-one; will settle once the topo-app config grid
 // is fully delivered.
 
 // The single unified configuration entry: topo::app::config(app).
@@ -11,9 +11,9 @@
 // snapshot() and emit_topo() are two views of the *same* logic
 // structure: the snapshot is the human/agent overview, the .topo is the
 // toolchain-consumable contract. They are kept consistent by
-// construction because both derive from the same Graph — precisely the
-// proposal's "snapshot and the emitted .topo are two views of the same
-// logic structure". One-to-one
+// construction because both derive from the same Graph — the
+// snapshot and the emitted .topo are two views of the same
+// logic structure. One-to-one
 // with the Python reference's config.py Config.
 
 #include <optional>
@@ -28,7 +28,7 @@ namespace topo::app {
 
 // A plain, structured snapshot of the whole graph. Strings rather than a
 // dynamic value tree keep the bridge minimal while still surfacing every
-// handler's In/Out and every connection in one place (proposal §2).
+// handler's In/Out and every connection in one place.
 struct Snapshot {
     struct HandlerView {
         std::string name;
@@ -95,7 +95,7 @@ private:
     const App& app_;
 };
 
-// The one topo::app::config(app) entry the proposal names.
+// The one topo::app::config(app) entry topo-app names.
 inline Config config(const App& app) { return Config(app); }
 
 }  // namespace topo::app

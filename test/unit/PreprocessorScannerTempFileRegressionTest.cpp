@@ -1,4 +1,4 @@
-// Regression test for topo-lang-cpp-preprocessor-scanner-hardcoded-tmp.
+// Regression test for the preprocessor scanner's hardcoded temp path.
 //
 // CppPreprocessorScanner used to write its preprocessed output to a
 // hardcoded ``/tmp/topo-pp-scan.cpp``. Two failure modes the fix

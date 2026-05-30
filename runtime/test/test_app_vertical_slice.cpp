@@ -203,8 +203,8 @@ static ta::App build_parallel_app() {
 }
 
 static std::string write_temp_src(const char* body, const char* name) {
-    // Unique per-process scratch path; ta::temp_path was retired with
-    // the audit fix for topo-lang-cpp-app-readback-shell-popen.
+    // Unique per-process scratch path; ta::temp_path was retired when
+    // subprocesses moved off shell-string popen to argv-style exec.
     static std::atomic<unsigned long> g_counter{0};
     unsigned long nonce = g_counter.fetch_add(1, std::memory_order_relaxed);
     auto pth = topo::platform::tempDirectory() /

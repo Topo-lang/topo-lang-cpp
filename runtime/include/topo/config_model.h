@@ -223,7 +223,7 @@ inline std::string stdlib_type_of(const ConfigValue& value) {
                 "contract; use a bridged scalar instead.");
         case ValueKind::Unbridged:
             throw UnbridgedValueError(
-                "value of type 'object' has no stdlib bridge type (see roadmap "
+                "value of type 'object' has no stdlib bridge type (see "
                 "the stdlib-bridging-types gap). Only string / integer / float / "
                 "bool / array / table values have a schema contract; refusing "
                 "to store an uncontracted value.");

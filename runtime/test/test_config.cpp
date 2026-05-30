@@ -53,7 +53,7 @@ bool throws(Fn&& fn) {
 }
 
 // Returns the what() of whatever the callable throws, or "" if it does
-// not throw — used to assert message content (key naming, roadmap gap).
+// not throw — used to assert message content (key naming, stdlib-bridging gap).
 template <typename Fn>
 std::string throws_msg(Fn&& fn) {
     try {

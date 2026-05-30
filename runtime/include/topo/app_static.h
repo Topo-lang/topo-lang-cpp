@@ -349,8 +349,7 @@ private:
 /// triggered. Each `triggered_*` flag corresponds 1:1 to a construct the
 /// regex front-end deliberately does NOT understand:
 ///
-/// | Flag                       | Construct (issue
-/// |                            |   topo-lang-cpp-app-static-regex-parser-five-known-gaps) |
+/// | Flag                       | Construct (regex-MVP gap) |
 /// |----------------------------|-------------------|
 /// | `triggered_macro_handler`  | macro-expanded registration calls (`#define REG(..)`)  |
 /// | `triggered_auto_return`    | `auto`-return handler signatures                       |

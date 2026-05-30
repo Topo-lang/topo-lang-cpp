@@ -464,7 +464,7 @@ TEST_F(CppContainmentL2, ContainmentL2ExternalOk) {
     EXPECT_EQ(runner.run(), 0);
 }
 
-// Regression guard for checker-l2-synthetic-caller-attribution: the memory
+// Regression guard for L2 synthetic-caller attribution: the memory
 // fixture has three external functions (`allocator_alloc`, `allocator_free`,
 // `buffer_copy`) calling `malloc` / `free` / `memcpy`.  These calls survive
 // the stdlib header whitelist (unlike the `<cstdio>` calls in the other

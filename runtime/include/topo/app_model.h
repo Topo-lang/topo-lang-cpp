@@ -6,7 +6,7 @@
 // expected to expand as the Functor model lands more cases; today's
 // shapes are intended to be the eventual stable surface, but the
 // `provisional` marker is honest until the test suite covers the full
-// proposal grid.
+// topo-app mapping grid.
 
 // In-memory logic graph: the single source of truth a topo-app C++
 // program builds by registration. This is the C++ projection of the
@@ -105,7 +105,7 @@ struct Handler {
     TypeRef out_type;
 
     // The single input parameter is conventionally named `in` to match
-    // the handler/flow spec's HandlerInput form; a source handler has no
+    // the handler/flow HandlerInput form; a source handler has no
     // parameter. Identical to the Python reference's signature().
     std::string signature() const {
         std::string param =
@@ -135,7 +135,7 @@ struct Flow {
 
 // The whole program: one namespace, the handlers, one flow. A single
 // namespace + single flow keeps the bridge minimal while still
-// exercising every mapping rule the proposal commits to.
+// exercising every mapping rule the topo-app design commits to.
 class Graph {
 public:
     explicit Graph(std::string namespace_name)

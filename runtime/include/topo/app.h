@@ -9,8 +9,8 @@
 
 // topo-app C++ surface: idiomatic registration, not a macro DSL.
 //
-// The proposal fixes the philosophy (pure-Functor handler model) and
-// leaves each topo-lang to project it onto its own idioms. The C++
+// The topo-app design fixes the philosophy (pure-Functor handler model)
+// and leaves each topo-lang to project it onto its own idioms. The C++
 // projection is template function_traits over an ordinary function
 // pointer plus a plain registration call: registering a handler is
 // ordinary C++, In/Out are *read from the function type* (never
@@ -166,7 +166,7 @@ namespace detail { class Parallel; }
 
 // A topo-app program: the in-memory logic graph plus the callables. One
 // App owns one namespace and (for this bridge) one flow — enough to
-// exercise every proposal mapping rule without productionizing.
+// exercise every topo-app mapping rule without productionizing.
 class App {
 public:
     explicit App(std::string namespace_name)
@@ -188,7 +188,7 @@ public:
     // Declare a linear logic chain: flow("p", a, b, c) becomes edges
     // a->b->c->void. parallel(...) members fan in/out from the same
     // neighbours (same-source / same-sink == same-stage parallel
-    // candidates, per the proposal's mapping table). Stages accept either
+    // candidates, per the topo-app mapping table). Stages accept either
     // a registered handler name (std::string) or parallel(...).
     template <typename... Stages>
     void flow(const std::string& name, Stages... stages) {

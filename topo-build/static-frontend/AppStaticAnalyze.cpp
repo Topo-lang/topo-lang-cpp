@@ -1012,7 +1012,7 @@ Result analyzeFile(const std::string& clangBinary,
         source = ss.str();
     }
 
-    // Audit fix (topo-lang-cpp-app-static-wrapped-temp-collision): the
+    // Wrapped-temp collision fix: the
     // previous implementation derived the temp filename from the input
     // source's stem (`<stem>.topo-app-static-wrapped.cpp`), which two
     // sibling sources with the same basename — a routine layout, e.g.

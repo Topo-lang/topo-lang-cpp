@@ -58,7 +58,7 @@ inline CheckResult check(const App& app,
     std::string name = app.graph().namespace_name();
     if (name.empty()) name = "topo_app";
 
-    // Audit fix (sister of topo-lang-cpp-app-readback-shell-popen):
+    // Temp-path hardening (same class as the readback shell fix):
     // pick a per-process unique scratch dir under the platform temp
     // directory; the previous ``temp_path`` hardcoded ``/tmp`` (broken
     // on Windows) and used a predictable filename (TOCTOU surface).

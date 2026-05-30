@@ -89,8 +89,8 @@ static std::string runtime_include_dir() {
 // ``-- -I<runtime-include>`` appended so the analyzed source's
 // ``#include <topo/app.h>`` resolves. Returns the argv vector directly
 // — argv-style exec via topo::platform::runProcessCapture replaced the
-// previous shell-string concatenation (audit issue
-// topo-lang-cpp-app-readback-shell-popen).
+// previous shell-string concatenation, which let TOPO_BIN be expanded
+// by /bin/sh -c.
 static std::vector<std::string> static_args(const std::string& src) {
     return {src, "--", "-I" + runtime_include_dir()};
 }
