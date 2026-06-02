@@ -124,9 +124,12 @@ install(FILES
 # add_subdirectory(topo-lang-cpp/test)) — the per-repo public CI built
 # topo-lang-cpp with no tests and passed green ("No tests were found!!!").
 # This self-gate runs the suite in the standalone zero-LLVM CI. It is distinct
-# from TOPO_LANG_CPP_BUILD_TEST_FIXTURES (monorepo e2e fixtures) above, and
-# stays DORMANT in the meta build (TOPO_LANG_CPP_BUILD_TESTS defaults OFF
-# there, so the meta's explicit add remains the single source — no double-add).
+# from TOPO_LANG_CPP_BUILD_TEST_FIXTURES (monorepo e2e fixtures) above. In the
+# meta full-stack build it is now the SINGLE source of this suite too: the meta
+# FORCEs TOPO_LANG_CPP_BUILD_TESTS ON (alongside TOPO_META_DRIVING_TESTS), so
+# this gate fires inside topo-lang-cpp's own project() scope and the meta no
+# longer carries an explicit add_subdirectory(topo-lang-cpp/test) (an explicit
+# meta add on top of the forced-ON gate would double-add).
 # test/CMakeLists.txt self-skips its LLVM/plugin-gated suites, so standalone
 # scope yields exactly the header-only cases.
 option(TOPO_LANG_CPP_BUILD_TESTS "Build topo-lang-cpp tests" OFF)
