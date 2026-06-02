@@ -182,13 +182,16 @@ protected:
 
     std::string writeTempFile(const std::string& name, const std::string& content) {
         auto path = tempDir_ / name;
-        std::ofstream ofs(path);
+        // Binary mode: on Windows a text-mode stream translates '\n' -> '\r\n'
+        // on disk, so the generator would read back CRLF and originalContent
+        // would not byte-match the LF `content` the test wrote.
+        std::ofstream ofs(path, std::ios::binary);
         ofs << content;
         return path.string();
     }
 
     std::string readTempFile(const std::string& path) {
-        std::ifstream ifs(path);
+        std::ifstream ifs(path, std::ios::binary);
         std::ostringstream ss;
         ss << ifs.rdbuf();
         return ss.str();

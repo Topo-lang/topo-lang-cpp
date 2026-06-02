@@ -109,6 +109,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
+              -DTOPO_LANG_CPP_BUILD_TESTS=ON \
               -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install" \
               -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
 
@@ -116,7 +117,23 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure --timeout 120
+        run: |
+          # Windows: MinGW-built test exes are launched at ctest time (PRE_TEST
+          # gtest discovery); put the build-time gcc bin dir FIRST on PATH so
+          # its matching libstdc++-6 / libgcc_s_seh-1 / libwinpthread-1 resolve
+          # (a stale Git/Strawberry libstdc++ otherwise shadows it →
+          # 0xC0000139). Mirrors topo-core's CI.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cxx=$(grep -m1 '^CMAKE_CXX_COMPILER:' build/CMakeCache.txt | cut -d= -f2)
+            if [ -n "$cxx" ]; then
+              export PATH="$(cygpath -u "$(dirname "$cxx")"):${PATH}"
+            fi
+          fi
+          # --no-tests=error: a 0-tests build FAILS (no silent 0-tests green).
+          # TOPO_LANG_CPP_BUILD_TESTS=ON registers the header-only unit suite
+          # (LLVM/plugin suites self-skip in this zero-LLVM scope) that the
+          # standalone CI previously never built.
+          ctest --test-dir build --output-on-failure --timeout 120 --no-tests=error
 
       - name: Install topo-lang-cpp
         run: cmake --install build --prefix "${RUNNER_TEMP}/lang-cpp-install"
