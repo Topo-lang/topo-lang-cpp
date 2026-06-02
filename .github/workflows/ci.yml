@@ -109,6 +109,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
+              -DTOPO_LANG_CPP_BUILD_TESTS=ON \
               -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install" \
               -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
 
@@ -116,7 +117,11 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure --timeout 120
+        # --no-tests=error: a 0-tests build FAILS (no silent 0-tests green).
+        # TOPO_LANG_CPP_BUILD_TESTS=ON registers the ~163-case header-only unit
+        # suite (LLVM/plugin suites self-skip in this zero-LLVM scope) that the
+        # standalone CI previously never built.
+        run: ctest --test-dir build --output-on-failure --timeout 120 --no-tests=error
 
       - name: Install topo-lang-cpp
         run: cmake --install build --prefix "${RUNNER_TEMP}/lang-cpp-install"

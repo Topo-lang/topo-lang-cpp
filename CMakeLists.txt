@@ -116,3 +116,30 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/topo-lang-cppConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/topo-lang-cpp
 )
+
+# ── Tests (self-gated) ────────────────────────────────
+# The header-only unit suite (topo-lang-cpp-tests, ~163 cases linking the
+# zero-LLVM TopoCppAnalysis + TopoCppTranspile + TopoCppLSP targets) used to
+# run ONLY in the meta full-stack build (via the meta-root's explicit
+# add_subdirectory(topo-lang-cpp/test)) — the per-repo public CI built
+# topo-lang-cpp with no tests and passed green ("No tests were found!!!").
+# This self-gate runs the suite in the standalone zero-LLVM CI. It is distinct
+# from TOPO_LANG_CPP_BUILD_TEST_FIXTURES (monorepo e2e fixtures) above, and
+# stays DORMANT in the meta build (TOPO_LANG_CPP_BUILD_TESTS defaults OFF
+# there, so the meta's explicit add remains the single source — no double-add).
+# test/CMakeLists.txt self-skips its LLVM/plugin-gated suites, so standalone
+# scope yields exactly the header-only cases.
+option(TOPO_LANG_CPP_BUILD_TESTS "Build topo-lang-cpp tests" OFF)
+if(TOPO_LANG_CPP_BUILD_TESTS AND (PROJECT_IS_TOP_LEVEL OR TOPO_META_DRIVING_TESTS))
+    enable_testing()
+    if(NOT TARGET GTest::gtest_main)
+        include(FetchContent)
+        FetchContent_Declare(googletest
+            URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.tar.gz)
+        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googletest)
+    endif()
+    set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
+    include(GoogleTest)
+    add_subdirectory(test)
+endif()
