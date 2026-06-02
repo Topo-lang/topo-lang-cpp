@@ -13,12 +13,22 @@ target_link_libraries(topo-lang-cpp-tests PRIVATE
     TopoCppAnalysis TopoCppTranspile
     GTest::gtest_main
 )
+# Anchored on this test dir's parent (the topo-lang-cpp source root) so the
+# paths resolve in BOTH the meta build (PROJECT_SOURCE_DIR = meta root) and the
+# standalone build (PROJECT_SOURCE_DIR = clone root). The previous
+# ${PROJECT_SOURCE_DIR}/topo-lang-cpp/... form only resolved inside the meta.
 target_include_directories(topo-lang-cpp-tests PRIVATE
-    ${PROJECT_SOURCE_DIR}/topo-lang-cpp/runtime/include
-    ${PROJECT_SOURCE_DIR}/topo-lang-cpp/topo-check   # for analysis/stub/CppStubGenerator.h
-    ${PROJECT_SOURCE_DIR}/topo-lang-cpp/topo-transpile # for CppEmitter.h
-    ${PROJECT_SOURCE_DIR}/topo-llvm/runtime/include  # for C ABI headers used by SDK types
+    ${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include     # topo/array.h, span.h, ...
+    ${CMAKE_CURRENT_SOURCE_DIR}/../topo-check          # analysis/stub, analysis/extract
+    ${CMAKE_CURRENT_SOURCE_DIR}/../topo-transpile      # CppEmitter.h
 )
+# The topo-llvm C-ABI runtime headers live in the sibling topo-llvm repo, only
+# present in the meta layout; the standalone clone neither has nor needs them
+# for this header-only SDK suite (array/span/slot/table/view are self-contained).
+if(EXISTS "${PROJECT_SOURCE_DIR}/topo-llvm/runtime/include")
+    target_include_directories(topo-lang-cpp-tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/topo-llvm/runtime/include)
+endif()
 topo_set_compiler_flags(topo-lang-cpp-tests)
 gtest_discover_tests(topo-lang-cpp-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain;lang-cpp;stdlib" TIMEOUT 60)
 
