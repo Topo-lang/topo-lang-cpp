@@ -22,6 +22,7 @@
 #include <nlohmann/json.hpp>
 
 #include "topo/Platform/Process.h"
+#include "topo/Platform/ToolResolution.h"
 #include "topo/Transpile/TranspileModel.h"
 #include "topo/Transpile/TranspileModelJson.h"
 
@@ -2188,15 +2189,20 @@ static int run() {
         "-xc++",
     };
 
-#ifdef TOPO_EXTRACT_CPP_RESOURCE_DIR
+    // Resolve clang's resource dir (lib/clang/<major>) from the BYO LLVM
+    // toolchain at runtime so a relocated binary finds the builtin headers
+    // (<stddef.h>, intrinsics) wherever the user's LLVM lives. The baked
+    // compile-time path is only a dev/build-tree fallback.
     {
-        std::string rd = TOPO_EXTRACT_CPP_RESOURCE_DIR;
+        std::string rd = topo::platform::llvmResourceDir();
+#ifdef TOPO_EXTRACT_CPP_RESOURCE_DIR
+        if (rd.empty()) rd = TOPO_EXTRACT_CPP_RESOURCE_DIR;
+#endif
         if (!rd.empty() && std::filesystem::exists(rd)) {
             argStrings.push_back("-resource-dir");
             argStrings.push_back(rd);
         }
     }
-#endif
 
     // macOS: resolve the active SDK via xcrun so libc++ headers (<memory>,
     // <vector>, ...) can be found. On Linux/Windows the host toolchain's

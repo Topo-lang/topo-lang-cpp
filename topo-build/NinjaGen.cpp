@@ -73,7 +73,10 @@ bool NinjaGen::generate(const BuildConfig& cfg, const fs::path& ninjaPath, const
 
     fs::path baseDir = ninjaPath.parent_path().parent_path(); // .topo-cache/ -> project dir
 
-    // Build the compile command
+    // Build the compile command. cfg.hostCompilerPath is resolved on THIS host
+    // (by the BYO toolchain resolver), so the emitted build.ninja is host-local
+    // — it must be regenerated per machine and never committed or shipped (the
+    // enclosing .topo-cache/ is a build artifact).
     std::ostringstream cmd;
     cmd << ninjaEscape(fs::path(cfg.hostCompilerPath).generic_string());
     cmd << " -std=" << cfg.standard;

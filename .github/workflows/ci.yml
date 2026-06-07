@@ -63,7 +63,11 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/topo-install
-          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v1
+          # v2: topo-core gained the BYO LLVM toolchain resolver API
+          # (llvmToolPath / llvmResourceDir, used by the host bridges); the
+          # upstream cache is keyed on the literal ref "main", so bump to force
+          # a fresh topo-core rebuild that carries the new headers.
+          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v2
 
       - name: Build & install topo-core (zero-LLVM, lang-less)
         if: steps.upstream-cache.outputs.cache-hit != 'true'

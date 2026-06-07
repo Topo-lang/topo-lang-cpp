@@ -56,10 +56,14 @@ add_executable(topo-debug-cpp $<TARGET_OBJECTS:TopoDebugAdapter>)
 target_link_libraries(topo-debug-cpp PRIVATE TopoDebugAdapter)
 topo_set_compiler_flags(topo-debug-cpp)
 
-# RPATH so the binary finds liblldb.dylib at runtime without DYLD_LIBRARY_PATH.
+# RPATH so the binary finds liblldb.dylib at runtime. BUILD_RPATH keeps the
+# build-tree binary pointing at the build host's LLVM lib dir (dev runs work
+# unchanged). INSTALL_RPATH is relocation-safe: @loader_path/../lib resolves
+# liblldb relative to the installed binary (so a packaged tree that ships its
+# own lib/ works), with the build host's lib dir kept only as a dev fallback.
 set_target_properties(topo-debug-cpp PROPERTIES
     BUILD_RPATH "${_LLDB_LIB_DIR}"
-    INSTALL_RPATH "${_LLDB_LIB_DIR}"
+    INSTALL_RPATH "@loader_path/../lib;${_LLDB_LIB_DIR}"
 )
 
 install(TARGETS TopoDebugAdapter topo-debug-cpp

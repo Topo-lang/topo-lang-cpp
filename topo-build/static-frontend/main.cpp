@@ -33,11 +33,16 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// Clang's resource dir (lib/clang/<major>) — resolved from the BYO LLVM
+// toolchain at runtime so a relocated binary finds builtin headers wherever
+// the user's LLVM lives. The baked compile-time path is a dev fallback only.
+std::string resolveResourceDir() {
+    std::string rd = topo::platform::llvmResourceDir();
 #ifdef TOPO_APP_STATIC_CPP_RESOURCE_DIR
-const char* kResourceDir = TOPO_APP_STATIC_CPP_RESOURCE_DIR;
-#else
-const char* kResourceDir = "";
+    if (rd.empty()) rd = TOPO_APP_STATIC_CPP_RESOURCE_DIR;
 #endif
+    return rd;
+}
 
 void usage() {
     std::cerr
@@ -91,14 +96,13 @@ int main(int argc, char** argv) {
     // `clang++` — bundled topo-llvm/llvm-dev/bin/ first, PATH fallback.
     std::string clang = topo::platform::resolveLLVMTool("clang");
 
-    // -resource-dir lets the bundled clang find its builtin headers
-    // (<stddef.h>, intrinsics, ...) — wired by CMake at build time, the
-    // same handling topo-extract-cpp uses for libclang.
+    // -resource-dir lets clang find its builtin headers (<stddef.h>,
+    // intrinsics, ...) — resolved at runtime, the same handling
+    // topo-extract-cpp uses for libclang.
     std::vector<std::string> clangArgs;
-    if (kResourceDir && *kResourceDir &&
-        fs::exists(std::string(kResourceDir))) {
+    if (std::string rd = resolveResourceDir(); !rd.empty() && fs::exists(rd)) {
         clangArgs.push_back("-resource-dir");
-        clangArgs.push_back(kResourceDir);
+        clangArgs.push_back(rd);
     }
     for (const auto& e : extraArgs) clangArgs.push_back(e);
 

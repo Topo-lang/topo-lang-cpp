@@ -224,7 +224,7 @@ DriverResult linkCpp(const BuildConfig& cfg,
         if (result.exitCode != 0) break;
 
         std::vector<std::string> arArgs = {"rcs", cfg.outputPath, objPath};
-        result.exitCode = plat::runProcess(plat::resolveLLVMTool("llvm-ar"), arArgs, cfg.verbose).exitCode;
+        result.exitCode = plat::runProcess(plat::llvmToolPath("llvm-ar"), arArgs, cfg.verbose).exitCode;
         break;
     }
     }

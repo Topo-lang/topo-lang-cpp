@@ -2,6 +2,7 @@
 
 #include "topo/Platform/Platform.h"
 #include "topo/Platform/Process.h"
+#include "topo/Platform/ToolResolution.h"
 
 #include <filesystem>
 #include <fstream>
@@ -17,24 +18,15 @@ ClangdBridge::ClangdBridge() : LSPBridge("[topo-lsp]") {}
 
 bool ClangdBridge::isClangdAvailable() {
     namespace plat = topo::platform;
-    std::string clangdName = "clangd" + std::string(plat::ExeSuffix);
 
-    // Mirror ClangdBridge::start() resolution order: bundled first, then PATH.
-#ifdef TOPO_LLVM_BINDIR
-    {
-        fs::path bundled = fs::path(TOPO_LLVM_BINDIR) / clangdName;
-        if (fs::exists(bundled)) {
-            return true;
-        }
-    }
-#endif
-
-    // PATH lookup via `clangd --version`, routed through argv-style
-    // ``topo::platform::runProcessCapture`` — no shell, no quoting surface,
-    // works uniformly on macOS / Linux / Windows. Replaces the prior
-    // ``std::system`` call that violated the no-shell audit contract
-    // (sister policy lives in ``scripts/audit/no-system-popen.sh``).
-    auto r = plat::runProcessCapture(clangdName, {"--version"});
+    // Resolve clangd from the BYO LLVM toolchain (resolver derives the path
+    // from the same root as the rest of the LLVM tools), falling back to a
+    // bare name on PATH. Confirm via `clangd --version`, routed through
+    // argv-style ``runProcessCapture`` — no shell, no quoting surface (sister
+    // policy lives in ``scripts/audit/no-system-popen.sh``).
+    std::string clangd = plat::llvmToolPath("clangd");
+    if (clangd.empty()) clangd = "clangd" + std::string(plat::ExeSuffix);
+    auto r = plat::runProcessCapture(clangd, {"--version"});
     return r.exitCode == 0;
 }
 
@@ -51,16 +43,8 @@ bool ClangdBridge::start(const std::string& clangdPath, const std::string& build
     // Determine clangd executable
     std::string exe = clangdPath;
     if (exe.empty()) {
-        std::string clangdName = "clangd" + std::string(plat::ExeSuffix);
-#ifdef TOPO_LLVM_BINDIR
-        fs::path bundled = fs::path(TOPO_LLVM_BINDIR) / clangdName;
-        if (fs::exists(bundled)) {
-            exe = bundled.string();
-        } else
-#endif
-        {
-            exe = clangdName;
-        }
+        exe = plat::llvmToolPath("clangd");
+        if (exe.empty()) exe = "clangd" + std::string(plat::ExeSuffix);
     }
 
     // Build arguments
