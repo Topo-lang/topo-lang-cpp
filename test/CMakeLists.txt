@@ -3,6 +3,7 @@ add_executable(topo-lang-cpp-tests
     unit/RuntimeTypesTest.cpp
     unit/CppStubGeneratorTest.cpp
     unit/CppSymbolExtractorTest.cpp
+    unit/CppSymbolAccessExtractorTest.cpp
     unit/CppExtractorTest.cpp
     unit/CppEmitterStdlibTest.cpp
     unit/PreprocessorScannerTempFileRegressionTest.cpp

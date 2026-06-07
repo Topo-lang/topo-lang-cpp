@@ -152,6 +152,33 @@ TEST(CppStubGenerator, MatchingBraceUnmatched) {
     EXPECT_EQ(end, std::string::npos);
 }
 
+// A C++14 digit separator (`1'000`) must not be mistaken for a char-literal
+// opener, which would scan to the next `'` and swallow the closing brace.
+TEST(CppStubGenerator, MatchingBraceDigitSeparator) {
+    std::string source = "{ int n = 1'000'000; return n; }";
+    size_t end = CppStubGenerator::findMatchingBrace(source, 0);
+    ASSERT_NE(end, std::string::npos);
+    EXPECT_EQ(source[end], '}');
+    EXPECT_EQ(end, source.size() - 1);
+}
+
+// Hex digit separators (`0xFF'FF`) likewise are not char literals.
+TEST(CppStubGenerator, MatchingBraceHexDigitSeparator) {
+    std::string source = "{ unsigned m = 0xFF'FF; return m; }";
+    size_t end = CppStubGenerator::findMatchingBrace(source, 0);
+    ASSERT_NE(end, std::string::npos);
+    EXPECT_EQ(end, source.size() - 1);
+}
+
+// A genuine char literal must still be skipped (so a `}` inside it does not
+// terminate the body early).
+TEST(CppStubGenerator, MatchingBraceCharLiteralBrace) {
+    std::string source = "{ char c = '}'; return c; }";
+    size_t end = CppStubGenerator::findMatchingBrace(source, 0);
+    ASSERT_NE(end, std::string::npos);
+    EXPECT_EQ(end, source.size() - 1);
+}
+
 // --- isVoidReturn tests ---
 
 TEST(CppStubGenerator, IsVoidReturnTrue) {
@@ -162,6 +189,38 @@ TEST(CppStubGenerator, IsVoidReturnTrue) {
 
 TEST(CppStubGenerator, IsVoidReturnFalse) {
     std::string source = "int compute(int x) {";
+    size_t bodyPos = source.find('{');
+    EXPECT_FALSE(CppStubGenerator::isVoidReturn(source, bodyPos));
+}
+
+// A preceding void function must not bleed into the next function's return
+// type. The old window scan saw the earlier `void` and misclassified `make`.
+TEST(CppStubGenerator, IsVoidReturnNotLeakedFromPrevious) {
+    std::string source =
+        "void prev() {}\n"
+        "Widget make() {";
+    size_t bodyPos = source.rfind('{');
+    EXPECT_FALSE(CppStubGenerator::isVoidReturn(source, bodyPos));
+}
+
+// `void*` as a return type is NOT a void return (a stub must `return {};`).
+TEST(CppStubGenerator, IsVoidReturnPointerNotVoid) {
+    std::string source = "void* allocate(size_t n) {";
+    size_t bodyPos = source.find('{');
+    EXPECT_FALSE(CppStubGenerator::isVoidReturn(source, bodyPos));
+}
+
+// A `void()` buried in a template return type (`std::function<void()>`) must
+// not be read as a void return.
+TEST(CppStubGenerator, IsVoidReturnInTemplateArgNotVoid) {
+    std::string source = "std::function<void()> handler() {";
+    size_t bodyPos = source.find('{');
+    EXPECT_FALSE(CppStubGenerator::isVoidReturn(source, bodyPos));
+}
+
+// A `void*` parameter must not make the function look void-returning.
+TEST(CppStubGenerator, IsVoidReturnVoidParamNotVoid) {
+    std::string source = "int handle(void* ctx) {";
     size_t bodyPos = source.find('{');
     EXPECT_FALSE(CppStubGenerator::isVoidReturn(source, bodyPos));
 }

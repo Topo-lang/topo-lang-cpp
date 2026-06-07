@@ -6,6 +6,7 @@
 
 #include "CppSymbolExtractor.h"
 
+#include <cctype>
 #include <fstream>
 #include <regex>
 #include <stack>
@@ -15,6 +16,99 @@
 namespace topo::check {
 
 namespace {
+
+/// True if `R` at index `i` opens a raw string literal (`R"delim(`), as opposed
+/// to a normal identifier character that merely happens to precede a `"` (e.g.
+/// the `R` ending `"eventR"`). A raw-string prefix sits at a token boundary:
+/// the preceding char is not part of an identifier, except for the encoding
+/// prefixes `L`, `u`, `U`, `u8`. We only reach this with `line[i] == 'R'`.
+bool isRawStringStart(const std::string& line, size_t i) {
+    if (i + 1 >= line.size() || line[i + 1] != '"') return false;
+    if (i == 0) return true;
+    char prev = line[i - 1];
+    // Encoding prefixes that may legitimately precede the `R`.
+    if (prev == 'L' || prev == 'u' || prev == 'U') {
+        // Prefix is L / u / U; it must itself sit at a token boundary.
+        return i < 2 || !(std::isalnum(static_cast<unsigned char>(line[i - 2])) || line[i - 2] == '_');
+    }
+    if (prev == '8' && i >= 2 && line[i - 2] == 'u') {
+        // `u8R"` prefix: the char before `R` is `8`, preceded by `u`.
+        return i < 3 || !(std::isalnum(static_cast<unsigned char>(line[i - 3])) || line[i - 3] == '_');
+    }
+    // Any other identifier char before `R` means this is not a raw-string
+    // prefix (the `R` belongs to a longer token / string).
+    return !(std::isalnum(static_cast<unsigned char>(prev)) || prev == '_');
+}
+
+/// Replace string/char/raw-string literal contents with spaces and strip
+/// comments on a single line, carrying block-comment and raw-string state
+/// across lines. Masked regions become spaces (length-preserving) so braces,
+/// identifiers, and punctuation outside literals/comments still line up; a
+/// trailing line comment is truncated. A mismatched `{`/`}`/quote/`R"` inside
+/// a literal or comment can no longer desync the scanner.
+std::string maskLine(const std::string& line, bool& inBlockComment, bool& inRawString, std::string& rawDelim) {
+    std::string out(line.size(), ' ');
+    for (size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
+        if (inBlockComment) {
+            if (c == '*' && i + 1 < line.size() && line[i + 1] == '/') {
+                inBlockComment = false;
+                ++i;
+            }
+            continue;
+        }
+        if (inRawString) {
+            std::string closer = ")" + rawDelim + "\"";
+            if (line.compare(i, closer.size(), closer) == 0) {
+                inRawString = false;
+                rawDelim.clear();
+                i += closer.size() - 1;
+            }
+            continue;
+        }
+        if (c == '/' && i + 1 < line.size() && line[i + 1] == '/') {
+            break; // rest of line is a line comment — leave it blank
+        }
+        if (c == '/' && i + 1 < line.size() && line[i + 1] == '*') {
+            inBlockComment = true;
+            ++i;
+            continue;
+        }
+        if (c == 'R' && isRawStringStart(line, i)) {
+            auto parenPos = line.find('(', i + 2);
+            if (parenPos != std::string::npos) {
+                std::string delim = line.substr(i + 2, parenPos - (i + 2));
+                std::string closer = ")" + delim + "\"";
+                auto closePos = line.find(closer, parenPos + 1);
+                if (closePos != std::string::npos) {
+                    i = closePos + closer.size() - 1; // same-line raw string
+                    continue;
+                }
+                inRawString = true;
+                rawDelim = delim;
+                continue;
+            }
+        }
+        if (c == '"') {
+            ++i;
+            while (i < line.size() && line[i] != '"') {
+                if (line[i] == '\\' && i + 1 < line.size()) ++i;
+                ++i;
+            }
+            continue; // closing quote (if present) stays blank
+        }
+        if (c == '\'') {
+            ++i;
+            while (i < line.size() && line[i] != '\'') {
+                if (line[i] == '\\' && i + 1 < line.size()) ++i;
+                ++i;
+            }
+            continue;
+        }
+        out[i] = c;
+    }
+    return out;
+}
 
 // C++ keywords that look like function definitions but aren't
 static const std::vector<std::string> cppKeywords = {
@@ -196,8 +290,19 @@ std::vector<HostSymbol> CppSymbolExtractor::extractSymbols(const std::string& fi
     int lineNum = 0;
     int braceDepth = 0;
 
+    // Literal/comment masking state, carried across lines.
+    bool inBlockComment = false;
+    bool inRawString = false;
+    std::string rawDelim;
+
     while (std::getline(file, line)) {
         ++lineNum;
+
+        // Mask string/char/raw-string contents and strip comments before any
+        // scanning, so a `{`/`}` inside a literal or comment cannot pop a
+        // namespace/class scope early. All scanning below runs on `line`
+        // (the masked text).
+        line = maskLine(line, inBlockComment, inRawString, rawDelim);
 
         // Track braces
         for (char c : line) {
@@ -205,6 +310,7 @@ std::vector<HostSymbol> CppSymbolExtractor::extractSymbols(const std::string& fi
                 ++braceDepth;
             } else if (c == '}') {
                 --braceDepth;
+                if (braceDepth < 0) braceDepth = 0; // clamp: never go negative
                 if (!nsDepths.empty() && braceDepth == nsDepths.top()) {
                     nsStack.pop();
                     nsDepths.pop();

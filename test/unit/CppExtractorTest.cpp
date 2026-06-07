@@ -537,6 +537,39 @@ TEST_F(CppExtractorTest, Import_IncludeInRawStringWithDelimiter) {
     EXPECT_EQ(imports[0].line, 4);
 }
 
+TEST_F(CppExtractorTest, Import_IdentifierEndingInRNotRawString) {
+    // A normal string ending in 'R' (e.g. "eventR") must NOT be misread as the
+    // start of a raw string. Previously the bare `R"` test latched raw-string
+    // state and swallowed every following #include.
+    auto path = writeTempFile("ident_r.cpp",
+        "const char* k = \"eventR\";\n"
+        "#include <vector>\n"
+        "#include <string>\n"
+    );
+
+    CppImportExtractor extractor;
+    auto imports = extractor.extractImports(path);
+
+    ASSERT_EQ(imports.size(), 2u);
+    EXPECT_EQ(imports[0].normalizedPath, "vector");
+    EXPECT_EQ(imports[1].normalizedPath, "string");
+}
+
+TEST_F(CppExtractorTest, Import_SubscriptKeyEndingInRNotRawString) {
+    // handler["eventR"](data); — the `R"` here is the tail of a string key, not
+    // a raw-string prefix. Includes after it must still be found.
+    auto path = writeTempFile("subscript_r.cpp",
+        "void wire() { handler[\"eventR\"](data); }\n"
+        "#include <map>\n"
+    );
+
+    CppImportExtractor extractor;
+    auto imports = extractor.extractImports(path);
+
+    ASSERT_EQ(imports.size(), 1u);
+    EXPECT_EQ(imports[0].normalizedPath, "map");
+}
+
 TEST_F(CppExtractorTest, Import_NestedBlockComments) {
     // Multiple block comments interspersed with real includes.
     auto path = writeTempFile("nested_block.cpp",
@@ -596,6 +629,25 @@ TEST_F(CppExtractorTest, CallSite_RawStringSkipped) {
 
     ASSERT_EQ(sites.size(), 1u);
     EXPECT_EQ(sites[0].calleePattern, "fopen");
+}
+
+TEST_F(CppExtractorTest, CallSite_StringEndingInRNotRawString) {
+    // A string ending in 'R' on one line must not be read as a raw-string
+    // opener, which would otherwise swallow the rest of the function and drop
+    // the fopen call below it.
+    auto path = writeTempFile("string_r_call.cpp",
+        "void fn() {\n"
+        "    const char* tag = \"handlerR\";\n"
+        "    fopen(\"data\", \"r\");\n"
+        "}\n"
+    );
+
+    CppCallSiteExtractor extractor;
+    auto sites = extractor.extractCallSites(path);
+
+    ASSERT_EQ(sites.size(), 1u);
+    EXPECT_EQ(sites[0].calleePattern, "fopen");
+    EXPECT_EQ(sites[0].callerQualifiedName, "fn");
 }
 
 TEST_F(CppExtractorTest, CallSite_QualifiedApiCall) {

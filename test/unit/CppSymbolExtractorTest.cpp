@@ -393,6 +393,41 @@ TEST_F(CppSymbolExtractorTest, VoidReturnNoParams) {
     EXPECT_TRUE(sym->paramTypes.empty());
 }
 
+// 21a. BraceInStringDoesNotPopScope — a `}` inside a string literal must not
+// close the enclosing namespace early, which would mis-qualify later symbols.
+TEST_F(CppSymbolExtractorTest, BraceInStringDoesNotPopScope) {
+    auto path = writeTempFile("brace_in_string.cpp",
+                              "namespace app {\n"
+                              "const char* tmpl = \"}\";\n"
+                              "void run() { }\n"
+                              "}\n");
+
+    CppSymbolExtractor extractor;
+    auto syms = extractor.extractSymbols(path);
+
+    auto* sym = findByName(syms, "run");
+    ASSERT_NE(sym, nullptr);
+    // If the `}` in the string had popped the namespace, this would be "run".
+    EXPECT_EQ(sym->qualifiedName, "app::run");
+}
+
+// 21b. BraceInCommentDoesNotPopScope — a `}` inside a line comment must not
+// close scope either.
+TEST_F(CppSymbolExtractorTest, BraceInCommentDoesNotPopScope) {
+    auto path = writeTempFile("brace_in_comment.cpp",
+                              "namespace app {\n"
+                              "// closing here }\n"
+                              "void run() { }\n"
+                              "}\n");
+
+    CppSymbolExtractor extractor;
+    auto syms = extractor.extractSymbols(path);
+
+    auto* sym = findByName(syms, "run");
+    ASSERT_NE(sym, nullptr);
+    EXPECT_EQ(sym->qualifiedName, "app::run");
+}
+
 // 21. ConstructorWithParams
 TEST_F(CppSymbolExtractorTest, ConstructorWithParams) {
     auto path = writeTempFile("ctor_params.cpp",

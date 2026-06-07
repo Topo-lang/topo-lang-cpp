@@ -60,6 +60,26 @@ std::string buildQualified(const std::stack<std::string>& nsStack,
     return result;
 }
 
+/// True if `R` at index `i` opens a raw string literal (`R"delim(`), not a
+/// normal identifier character that merely precedes a `"` (e.g. the `R`
+/// ending the string `"eventR"`). A raw-string prefix sits at a token
+/// boundary: the preceding char is not part of an identifier, except for the
+/// encoding prefixes `L`, `u`, `U`, `u8`.
+bool isRawStringStart(const std::string& line, size_t i) {
+    if (i + 1 >= line.size() || line[i + 1] != '"') return false;
+    if (i == 0) return true;
+    char prev = line[i - 1];
+    if (prev == 'L' || prev == 'u' || prev == 'U') {
+        // Prefix is L / u / U; it must itself sit at a token boundary.
+        return i < 2 || !(std::isalnum(static_cast<unsigned char>(line[i - 2])) || line[i - 2] == '_');
+    }
+    if (prev == '8' && i >= 2 && line[i - 2] == 'u') {
+        // `u8R"` prefix: the char before `R` is `8`, preceded by `u`.
+        return i < 3 || !(std::isalnum(static_cast<unsigned char>(line[i - 3])) || line[i - 3] == '_');
+    }
+    return !(std::isalnum(static_cast<unsigned char>(prev)) || prev == '_');
+}
+
 bool isCommentLine(const std::string& line) {
     size_t pos = line.find_first_not_of(" \t");
     if (pos == std::string::npos) return false;
@@ -106,7 +126,7 @@ std::string stripInlineComments(const std::string& line, bool& inBlockComment, b
             ++i;
             continue;
         }
-        if (c == 'R' && i + 1 < line.size() && line[i + 1] == '"') {
+        if (c == 'R' && isRawStringStart(line, i)) {
             auto parenPos = line.find('(', i + 2);
             if (parenPos != std::string::npos) {
                 std::string delim = line.substr(i + 2, parenPos - (i + 2));
@@ -242,11 +262,18 @@ std::unordered_set<std::string> collectGlobals(const std::string& filePath) {
 
         std::string masked = maskStringLiterals(stripped);
 
+        // Remember the peak depth seen on this line so a function body that
+        // opens AND closes on the same line (`int f(){ ... }`) computes its
+        // entry depth correctly even though `braceDepth` has already fallen
+        // back by the time the function is detected below.
+        int peakBraceDepth = braceDepth;
+
         // Track braces first.
         for (size_t i = 0; i < masked.size(); ++i) {
             char c = masked[i];
             if (c == '{') {
                 ++braceDepth;
+                if (braceDepth > peakBraceDepth) peakBraceDepth = braceDepth;
             } else if (c == '}') {
                 --braceDepth;
                 if (braceDepth < 0) braceDepth = 0;
@@ -288,8 +315,18 @@ std::unordered_set<std::string> collectGlobals(const std::string& filePath) {
             std::string fname = funcMatch[1].str();
             if (!isTypeKeyword(fname)) {
                 if (masked.find('{') != std::string::npos) {
-                    inFunction = true;
-                    functionDepth = braceDepth - 1;
+                    // Entry depth based on the peak depth on this line, so a
+                    // single-line body (`{ ... }` all on one line) is handled.
+                    int entryDepth = peakBraceDepth - 1;
+                    // Latch the function scope ONLY if the body is still open
+                    // after this line; a body that opens and closes on the same
+                    // line has already returned to (or below) the entry depth,
+                    // so `inFunction` must not stay latched for the rest of the
+                    // file (which would drop every later global write).
+                    if (braceDepth > entryDepth) {
+                        inFunction = true;
+                        functionDepth = entryDepth;
+                    }
                 }
                 continue;
             }

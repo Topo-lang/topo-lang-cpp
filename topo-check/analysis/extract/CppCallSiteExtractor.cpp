@@ -56,6 +56,25 @@ std::string buildGlobalCaller(const std::stack<std::string>& nsStack) {
     return result;
 }
 
+/// True if `R` at index `i` opens a raw string literal (`R"delim(`), not a
+/// normal identifier char that merely precedes a `"` (e.g. the `R` ending the
+/// string `"eventR"`). A raw-string prefix sits at a token boundary; only the
+/// encoding prefixes `L`, `u`, `U`, `u8` may legitimately precede the `R`.
+bool isRawStringStart(const std::string& line, size_t i) {
+    if (i + 1 >= line.size() || line[i + 1] != '"') return false;
+    if (i == 0) return true;
+    char prev = line[i - 1];
+    if (prev == 'L' || prev == 'u' || prev == 'U') {
+        // Prefix is L / u / U; it must itself sit at a token boundary.
+        return i < 2 || !(std::isalnum(static_cast<unsigned char>(line[i - 2])) || line[i - 2] == '_');
+    }
+    if (prev == '8' && i >= 2 && line[i - 2] == 'u') {
+        // `u8R"` prefix: the char before `R` is `8`, preceded by `u`.
+        return i < 3 || !(std::isalnum(static_cast<unsigned char>(line[i - 3])) || line[i - 3] == '_');
+    }
+    return !(std::isalnum(static_cast<unsigned char>(prev)) || prev == '_');
+}
+
 // Check if a line is a comment-only line
 bool isCommentLine(const std::string& line) {
     size_t pos = line.find_first_not_of(" \t");
@@ -478,8 +497,19 @@ std::vector<DetectedCallSite> CppCallSiteExtractor::extractCallSites(const std::
                 inBlockComment = true;
                 break;
             }
+            // Regular string / char literal — skip its contents so an `R"` or
+            // comment marker inside it is never treated as code.
+            if (c == '"' || c == '\'') {
+                char quote = c;
+                ++i;
+                while (i < effectiveLine.size() && effectiveLine[i] != quote) {
+                    if (effectiveLine[i] == '\\' && i + 1 < effectiveLine.size()) ++i;
+                    ++i;
+                }
+                continue; // closing quote consumed by loop increment
+            }
             // Raw string literal start: R"delimiter(
-            if (c == 'R' && i + 1 < effectiveLine.size() && effectiveLine[i + 1] == '"') {
+            if (c == 'R' && isRawStringStart(effectiveLine, i)) {
                 auto parenPos = effectiveLine.find('(', i + 2);
                 if (parenPos != std::string::npos) {
                     std::string delim = effectiveLine.substr(i + 2, parenPos - (i + 2));

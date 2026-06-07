@@ -12,15 +12,33 @@
 #include "CppStubGenerator.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
 namespace topo::check {
 
 namespace {
+
+/// True if the `'` at `pos` is a C++14 digit separator (e.g. `1'000`,
+/// `0xFF'FF`) rather than the opening quote of a char literal. A digit
+/// separator sits between two digits of a numeric literal, so both neighbours
+/// are hexadecimal digits. Char literals — including the encoding-prefixed
+/// forms `L'a'` / `u'a'` / `U'a'` / `u8'a'` — have a non-digit on at least one
+/// side (the opener is preceded by an operator / prefix letter, the closer is
+/// followed by punctuation), so they are not misclassified here.
+bool isDigitSeparator(const std::string& source, size_t pos) {
+    if (pos == 0 || pos + 1 >= source.size()) return false;
+    char prev = source[pos - 1];
+    char next = source[pos + 1];
+    return std::isxdigit(static_cast<unsigned char>(prev)) &&
+           std::isxdigit(static_cast<unsigned char>(next));
+}
 
 /// Read entire file into string.
 bool readFile(const std::string& path, std::string& content) {
@@ -90,7 +108,8 @@ bool isInsideStringOrComment(const std::string& source, size_t pos) {
             prev = c;
             continue;
         }
-        if (c == '\'') {
+        if (c == '\'' && !isDigitSeparator(source, i)) {
+            // A digit separator (`1'000`) is not a char-literal opener.
             inChar = true;
             prev = c;
             continue;
@@ -153,8 +172,9 @@ size_t CppStubGenerator::findFunctionBodyStart(const std::string& source, const 
                 ++parenDepth;
             else if (c == ')')
                 --parenDepth;
-            else if (c == '"' || c == '\'') {
-                // Skip string/char literal
+            else if (c == '"' || (c == '\'' && !isDigitSeparator(source, i))) {
+                // Skip string/char literal (a `'` that is a digit separator,
+                // e.g. inside `1'000`, is not a literal and falls through).
                 char quote = c;
                 ++i;
                 while (i < source.size() && source[i] != quote) {
@@ -281,8 +301,10 @@ size_t CppStubGenerator::findMatchingBrace(const std::string& source, size_t ope
             continue;
         }
 
-        // Handle char literals
-        if (c == '\'') {
+        // Handle char literals. A `'` that is a C++14 digit separator (e.g.
+        // inside `1'000`) must NOT open a literal scan, or it would consume to
+        // the next `'` and swallow the function's closing brace.
+        if (c == '\'' && !isDigitSeparator(source, i)) {
             ++i;
             while (i < source.size() && source[i] != '\'') {
                 if (source[i] == '\\') ++i;
@@ -320,39 +342,125 @@ size_t CppStubGenerator::findMatchingBrace(const std::string& source, size_t ope
 }
 
 bool CppStubGenerator::isVoidReturn(const std::string& source, size_t bodyStart) {
-    // Look backwards from the function body start to find the return type.
-    // Skip past function name + params + qualifiers to find the type keyword.
-    // Simple heuristic: search backwards for "void" as the return type.
+    // Determine the return type of THIS definition only, anchored to its body
+    // brace at `bodyStart`. The old heuristic scanned a fixed window backward
+    // and returned true on any whole-word `void` followed by a `(`, so a
+    // preceding `void other() {}`, a `std::function<void()>` return type, or a
+    // `void*` parameter misclassified a non-void function as void and produced
+    // a return-less stub that fails to compile. We instead walk back from the
+    // body brace to the function name and inspect only the return-type text.
 
-    // Find the start of this line area (go back past params)
-    // We look for "void" preceding the function name on the same definition line.
-    size_t searchEnd = bodyStart;
-    // Go backwards to find the function definition start (look for a line
-    // that starts the return type, roughly within 200 chars before '{')
-    size_t searchStart = (bodyStart > 300) ? (bodyStart - 300) : 0;
+    if (bodyStart == 0 || bodyStart > source.size()) return false;
 
-    std::string region = source.substr(searchStart, searchEnd - searchStart);
+    // Step 1: from just before '{', skip whitespace and trailing qualifiers
+    // (const, noexcept, override, final, trailing return type via '->', etc.)
+    // back to the ')' that closes the parameter list.
+    size_t i = bodyStart;
+    while (i > 0) {
+        char c = source[i - 1];
+        if (c == ')') break;
+        --i;
+    }
+    if (i == 0 || source[i - 1] != ')') return false;
+    size_t closeParen = i - 1;
 
-    // Find last occurrence of "void" in the region that's a whole word
-    size_t pos = region.rfind("void");
-    while (pos != std::string::npos) {
-        // Check word boundary
-        bool leftOk = (pos == 0) || !std::isalnum(static_cast<unsigned char>(region[pos - 1]));
-        bool rightOk = (pos + 4 >= region.size()) || !std::isalnum(static_cast<unsigned char>(region[pos + 4]));
-        if (leftOk && rightOk) {
-            // Make sure there's no '(' between "void" and our search area start
-            // (which would mean "void" is a parameter type, not the return type).
-            // Check that we're before the function name/params.
-            size_t parenPos = region.find('(', pos);
-            if (parenPos != std::string::npos) {
-                return true;
-            }
+    // Step 2: backward paren-balance to the matching '(' opening the params.
+    int depth = 1;
+    size_t j = closeParen;
+    while (j > 0 && depth > 0) {
+        char c = source[j - 1];
+        if (c == ')')
+            ++depth;
+        else if (c == '(')
+            --depth;
+        --j;
+    }
+    if (depth != 0) return false;
+    size_t openParen = j; // index of '('
+
+    // Step 3: skip whitespace before '(' to the end of the function name.
+    size_t nameEnd = openParen;
+    while (nameEnd > 0 && std::isspace(static_cast<unsigned char>(source[nameEnd - 1]))) --nameEnd;
+    // Walk back over the function name identifier (and any operator/destructor
+    // punctuation that may precede it, e.g. `operator+`, `~Foo`).
+    size_t nameStart = nameEnd;
+    while (nameStart > 0) {
+        char c = source[nameStart - 1];
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '_') {
+            --nameStart;
+            continue;
         }
-        if (pos == 0) break;
-        pos = region.rfind("void", pos - 1);
+        break;
+    }
+    if (nameStart == nameEnd) return false; // no identifier — give up safely
+
+    // Step 4: collect the return-type text: from the start of this declaration
+    // back to a statement boundary, then everything before the name.
+    size_t declStart = nameStart;
+    while (declStart > 0) {
+        char c = source[declStart - 1];
+        // Stop at a statement / scope boundary.
+        if (c == ';' || c == '{' || c == '}') break;
+        --declStart;
+    }
+    std::string returnArea = source.substr(declStart, nameStart - declStart);
+
+    // Step 5: strip leading specifiers/keywords that are not part of the type
+    // (static, virtual, inline, constexpr, explicit, friend, extern, etc.),
+    // template clauses, and scope qualifiers, leaving the bare return type.
+    // A function is void-returning iff that bare type is exactly `void`
+    // (not `void*`, not `void&`, not a `<...void...>` template argument).
+    static const std::vector<std::string> leadingKeywords = {
+        "static", "virtual", "inline", "constexpr", "consteval", "explicit",
+        "friend", "extern", "noexcept"};
+
+    auto trim = [](std::string s) {
+        auto a = s.find_first_not_of(" \t\r\n");
+        if (a == std::string::npos) return std::string();
+        auto b = s.find_last_not_of(" \t\r\n");
+        return s.substr(a, b - a + 1);
+    };
+
+    std::string type = trim(returnArea);
+
+    // Remove any template/attribute clause by dropping everything up to the
+    // last top-level '>' or ']' — a `void` buried inside `<...>` (e.g.
+    // `std::function<void()>`) is an argument, not the return type.
+    {
+        int angle = 0, square = 0;
+        std::string out;
+        for (char c : type) {
+            if (c == '<') ++angle;
+            else if (c == '>') { if (angle > 0) --angle; out.clear(); continue; }
+            else if (c == '[') ++square;
+            else if (c == ']') { if (square > 0) --square; out.clear(); continue; }
+            if (angle == 0 && square == 0) out += c;
+        }
+        type = trim(out);
     }
 
-    return false;
+    // Strip leading non-type keywords repeatedly.
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (const auto& kw : leadingKeywords) {
+            if (type.size() >= kw.size() && type.compare(0, kw.size(), kw) == 0) {
+                size_t after = kw.size();
+                bool wholeWord = (after >= type.size()) ||
+                                 !(std::isalnum(static_cast<unsigned char>(type[after])) || type[after] == '_');
+                if (wholeWord) {
+                    type = trim(type.substr(after));
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // The bare return type is void only when it is exactly the token `void`
+    // with no pointer/reference/qualifier suffix (so `void*` / `void&` are not
+    // treated as void-returning).
+    return type == "void";
 }
 
 StubResult CppStubGenerator::stubFunction(const std::string& filePath, const std::string& funcName) {
