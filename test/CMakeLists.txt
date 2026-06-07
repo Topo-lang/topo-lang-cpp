@@ -7,6 +7,7 @@ add_executable(topo-lang-cpp-tests
     unit/CppExtractorTest.cpp
     unit/CppEmitterStdlibTest.cpp
     unit/PreprocessorScannerTempFileRegressionTest.cpp
+    unit/AppStaticRegexTest.cpp
 )
 # TopoCppAnalysis PUBLIC-propagates TopoCppLSP → TopoLSPBridge → TopoPlatform,
 # so explicit TopoPlatform was the duplicate.
@@ -31,6 +32,11 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/topo-llvm/runtime/include")
         ${PROJECT_SOURCE_DIR}/topo-llvm/runtime/include)
 endif()
 topo_set_compiler_flags(topo-lang-cpp-tests)
+# AppStaticRegexTest includes app_static.h → app.h, whose Field<"name", T>
+# NTTP (fixed_string) + constexpr std::string require C++20. The other suites
+# here are C++17-clean and compile unchanged under C++20; raise the floor so
+# the app-model header (and its regex front-end) can be unit-tested.
+target_compile_features(topo-lang-cpp-tests PRIVATE cxx_std_20)
 gtest_discover_tests(topo-lang-cpp-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain;lang-cpp;stdlib" TIMEOUT 60)
 
 # NinjaGen integration test (needs LLVM tool paths for clang resolution)

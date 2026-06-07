@@ -210,6 +210,46 @@ inline std::optional<std::string> first_string_literal(const std::string& s) {
     return std::nullopt;
 }
 
+// Join a run of C++ adjacent string literals into the single string the
+// compiler would form: `"re" "duce"` -> `reduce`. Scans from the first
+// literal in the fragment and keeps consuming literals as long as only
+// whitespace separates them (the same rule the language uses), so a name
+// argument written as adjacent literals is read as its concatenation
+// rather than just the first fragment. `count_out`, when non-null,
+// receives how many literals were joined (1 == an ordinary single
+// literal). Returns nullopt when the fragment has no leading literal.
+inline std::optional<std::string> join_adjacent_literals(
+    const std::string& s, int* count_out = nullptr) {
+    static const std::regex kLit(R"RX("((?:[^"\\]|\\.)*)")RX");
+    std::string joined;
+    int count = 0;
+    // Find the first literal, then walk forward over whitespace-separated
+    // neighbours starting at the previous literal's end.
+    auto begin = std::sregex_iterator(s.begin(), s.end(), kLit);
+    auto end = std::sregex_iterator();
+    std::ptrdiff_t expected_pos = -1;  // byte offset the next literal must start at
+    for (auto it = begin; it != end; ++it) {
+        const std::smatch& m = *it;
+        if (count == 0) {
+            // anchor on the first literal wherever it appears
+            joined += m[1].str();
+            expected_pos = m.position(0) + m.length(0);
+            ++count;
+            continue;
+        }
+        // Only whitespace may sit between adjacent literals; anything else
+        // (a comma, a close paren) ends the concatenation run.
+        std::string gap = s.substr(expected_pos, m.position(0) - expected_pos);
+        if (gap.find_first_not_of(" \t\r\n") != std::string::npos) break;
+        joined += m[1].str();
+        expected_pos = m.position(0) + m.length(0);
+        ++count;
+    }
+    if (count == 0) return std::nullopt;
+    if (count_out) *count_out = count;
+    return joined;
+}
+
 // --- scanned model --------------------------------------------------------
 
 struct FnSig {
@@ -247,20 +287,30 @@ inline std::string normalise_type(std::string t) {
 inline Scalar scalar_from_cpp(const std::string& raw) {
     std::string t = normalise_type(raw);
     if (t == "bool") return Scalar::Bool;
-    if (t == "std::string" || t == "string" || t == "char" /* const char* */ ||
-        t == "std::string_view")
+    if (t == "std::string" || t == "string" || t == "std::string_view")
         return Scalar::Str;
     if (t == "float" || t == "double" || t == "long double")
         return Scalar::Float;
-    // integral family (incl. fixed-width and signedness spellings)
-    static const std::regex kIntegral(
-        R"(^(signed\s+|unsigned\s+)?(char|short|int|long|long\s+long|size_t|std::size_t|int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t|ptrdiff_t)$)");
-    if (std::regex_match(t, kIntegral)) return Scalar::Int;
-    // `const char *` normalises to `char`; treat the pointer-to-char case
-    // as a string, matching app.h's const char* -> Scalar::Str.
+    // `const char *` normalises to `char` (normalise_type strips the `*`);
+    // treat the pointer-to-char case as a string, matching app.h's
+    // const char* -> Scalar::Str. This MUST run before the integral match
+    // below: now that bare `char` is integral (see next comment), a
+    // `const char*` whose normalised form is `char` would otherwise be
+    // mis-read as Int. The raw spelling still carries the `*`, so the
+    // pointer test stays accurate.
     if (raw.find("char") != std::string::npos &&
         raw.find('*') != std::string::npos)
         return Scalar::Str;
+    // integral family (incl. fixed-width and signedness spellings). Bare
+    // `char` is integral here, matching app.h's scalar_of<char>() (char
+    // satisfies std::is_integral_v, so the runtime bridge maps it to Int).
+    // Bare `unsigned` (== `unsigned int`) is accepted as its own
+    // alternative because the unsigned/signed prefix is optional *and* may
+    // stand alone — app.h maps `unsigned` to Int and the clang-AST sibling
+    // lists it explicitly.
+    static const std::regex kIntegral(
+        R"(^(signed|unsigned|(signed\s+|unsigned\s+)?(char|short|int|long|long\s+long|size_t|std::size_t|int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t|ptrdiff_t))$)");
+    if (std::regex_match(t, kIntegral)) return Scalar::Int;
     throw std::runtime_error(
         "topo-app static: unsupported handler type spelling '" + raw +
         "'; use an integral / floating / bool / string scalar, or a "
@@ -489,8 +539,17 @@ inline App parse_app_source(const std::string& cpp_source,
     //    list; only file-scope definitions matter for this surface.
     std::map<std::string, FnSig> fns;
     {
+        // A definition can start at buffer start OR right after any of the
+        // boundary delimiters `\n ; } {` — anchoring on `(?:^|\n)` alone
+        // missed a *second* definition on the same physical line (the
+        // sregex_iterator resumes mid-line after the first body's opening
+        // `{`, where no newline precedes the next return type), so
+        // `int a(int){...} int b(int){...}` silently dropped `b`. The
+        // boundary char is consumed by the leading group (it is whitespace
+        // or punctuation, never part of the return type that the trim()
+        // below cleans up anyway).
         static const std::regex fn_re(
-            R"RX((?:^|\n)\s*([A-Za-z_][\w:<>,\s\*&]*?)\s+([A-Za-z_]\w*)\s*\(([^;{]*)\)\s*\{)RX");
+            R"RX((?:^|[\n;{}])\s*([A-Za-z_][\w:<>,\s\*&]*?)\s+([A-Za-z_]\w*)\s*\(([^;{]*)\)\s*\{)RX");
         for (auto it = std::sregex_iterator(src.begin(), src.end(), fn_re);
              it != std::sregex_iterator(); ++it) {
             std::string ret = trim((*it)[1].str());
@@ -529,12 +588,20 @@ inline App parse_app_source(const std::string& cpp_source,
     //    <obj>.handler(&fn, "name" [, "doc"]);
     std::vector<std::string> handler_names;
     {
+        // The name argument captures the WHOLE run of adjacent string
+        // literals, not just the first fragment: `"re" "duce"` would
+        // otherwise register a handler named `re` and silently drop the
+        // intended `reduce` (violating the file's "never silently mis-
+        // extract" contract). join_adjacent_literals concatenates the run
+        // exactly as the C++ compiler does.
         static const std::regex h_re(
-            R"RX(\.\s*handler\s*\(\s*&?\s*([A-Za-z_][\w:]*)\s*,\s*"((?:[^"\\]|\\.)*)")RX");
+            R"RX(\.\s*handler\s*\(\s*&?\s*([A-Za-z_][\w:]*)\s*,\s*("(?:[^"\\]|\\.)*"(?:\s*"(?:[^"\\]|\\.)*")*))RX");
         for (auto it = std::sregex_iterator(src.begin(), src.end(), h_re);
              it != std::sregex_iterator(); ++it) {
             std::string fn_ref = (*it)[1].str();
-            std::string reg_name = (*it)[2].str();
+            // Concatenate adjacent string literals; the helper always finds
+            // at least one because the regex guaranteed a leading literal.
+            std::string reg_name = join_adjacent_literals((*it)[2].str()).value();
             // function may be referenced as ns::fn or fn; key on the last
             // component, which is how the signature map is keyed.
             std::string key = fn_ref;
@@ -580,7 +647,10 @@ inline App parse_app_source(const std::string& cpp_source,
                     "topo-app static: flow(...) needs a name and at least "
                     "one stage");
             std::string flow_name;
-            if (auto lit = first_string_literal(args[0]))
+            // join adjacent literals here too, so a flow name (or any stage
+            // name below) spelled as `"or" "ders"` matches the same joined
+            // form a handler name uses — keeping the two surfaces in parity.
+            if (auto lit = join_adjacent_literals(args[0]))
                 flow_name = *lit;
             else
                 throw std::runtime_error(
@@ -594,6 +664,12 @@ inline App parse_app_source(const std::string& cpp_source,
             std::vector<std::vector<std::string>> stages;
             for (std::size_t i = 1; i < args.size(); ++i) {
                 std::string a = trim(args[i]);
+                // A trailing / doubled comma in flow(...) yields an empty
+                // arg from split_top_level; an empty stage would produce a
+                // phantom edge with an empty source/target name. Skip it so
+                // `flow("p", "a",)` builds the same single-stage graph as
+                // `flow("p", "a")` rather than a {a -> } / { -> void} pair.
+                if (a.empty()) continue;
                 if (a.find("parallel") == 0 ||
                     a.find("::parallel") != std::string::npos) {
                     std::smatch pm;
@@ -604,16 +680,29 @@ inline App parse_app_source(const std::string& cpp_source,
                             "topo-app static: malformed parallel(...) stage");
                     std::vector<std::string> members;
                     for (const auto& mem : split_top_level(pm[1].str())) {
-                        auto ml = first_string_literal(mem);
+                        // Same trailing-comma guard as the stage loop:
+                        // parallel("a","b",) must not contribute an
+                        // empty-named member to the fan-in/out edges.
+                        if (trim(mem).empty()) continue;
+                        auto ml = join_adjacent_literals(mem);
                         members.push_back(ml ? *ml : trim(mem));
                     }
-                    stages.push_back(std::move(members));
-                } else if (auto lit = first_string_literal(a)) {
+                    if (!members.empty()) stages.push_back(std::move(members));
+                } else if (auto lit = join_adjacent_literals(a)) {
                     stages.push_back({*lit});
                 } else {
                     stages.push_back({a});  // bare registered name
                 }
             }
+
+            // After dropping empty stages a flow may have no stages left
+            // (e.g. `flow("p",)`); that is the same "needs at least one
+            // stage" violation the arg-count check above guards, so report
+            // it rather than dereferencing stages.back() on an empty vector.
+            if (stages.empty())
+                throw std::runtime_error(
+                    "topo-app static: flow(...) needs a name and at least "
+                    "one stage");
 
             Flow f;
             f.name = flow_name;
