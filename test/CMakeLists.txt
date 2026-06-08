@@ -45,7 +45,11 @@ add_executable(topo-lang-cpp-integration-tests
     integration/NinjaGenTest.cpp
 )
 target_link_libraries(topo-lang-cpp-integration-tests PRIVATE
-    TopoCppDriver TopoBuildConfig
+    # topo::core::TopoBuildConfig (namespaced imported target), NOT the bare
+    # `TopoBuildConfig`: standalone, topo-core is consumed via find_package and
+    # exposes only the ALIAS; a bare name becomes `-lTopoBuildConfig` and fails
+    # ("cannot find -lTopoBuildConfig" — it is an INTERFACE lib with no artifact).
+    TopoCppDriver topo::core::TopoBuildConfig
     nlohmann_json::nlohmann_json
     GTest::gtest_main
 )
