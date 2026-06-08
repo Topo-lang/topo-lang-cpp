@@ -62,6 +62,14 @@ if(TOPO_LANG_CPP_ENABLE_LLVM)
     # Existing TOPO_ENABLE_LLVM-gated subdir CMakeLists rely on this name
     # to fire their content.
     set(TOPO_ENABLE_LLVM ON)
+    # Heavy LLVM-linking targets (the integration test) serialize their link via
+    # the `llvm_link` job pool to bound peak memory. The meta-repo defines this
+    # pool; in a STANDALONE ENABLE_LLVM build (e.g. this package's own CI verify
+    # job) it must be defined here too, or ninja errors with
+    # "unknown pool name 'llvm_link'" when that target is built.
+    if(PROJECT_IS_TOP_LEVEL)
+        set_property(GLOBAL PROPERTY JOB_POOLS llvm_link=2)
+    endif()
 endif()
 
 # Test-only fixture builds (tiny_matrix / project_simple / ...) consumed by
