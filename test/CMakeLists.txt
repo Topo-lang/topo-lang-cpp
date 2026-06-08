@@ -37,7 +37,7 @@ topo_set_compiler_flags(topo-lang-cpp-tests)
 # here are C++17-clean and compile unchanged under C++20; raise the floor so
 # the app-model header (and its regex front-end) can be unit-tested.
 target_compile_features(topo-lang-cpp-tests PRIVATE cxx_std_20)
-gtest_discover_tests(topo-lang-cpp-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain;lang-cpp;stdlib" TIMEOUT 60)
+gtest_discover_tests(topo-lang-cpp-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain\;lang-cpp\;stdlib" TIMEOUT 60)
 
 # NinjaGen integration test (needs LLVM tool paths for clang resolution)
 if(TOPO_ENABLE_LLVM)
@@ -54,7 +54,7 @@ target_include_directories(topo-lang-cpp-integration-tests PRIVATE
 )
 topo_set_llvm_flags(topo-lang-cpp-integration-tests)
 set_property(TARGET topo-lang-cpp-integration-tests PROPERTY JOB_POOL_LINK llvm_link)
-gtest_discover_tests(topo-lang-cpp-integration-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "integration;lang-cpp" TIMEOUT 60)
+gtest_discover_tests(topo-lang-cpp-integration-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "integration\;lang-cpp" TIMEOUT 60)
 endif()
 
 # Checker E2E tests (completeness + containment + purity + visibility + stage-isolation).
@@ -82,7 +82,7 @@ if(TARGET TopoCppPlugin)
         TOPO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/check"
     )
     topo_set_compiler_flags(topo-lang-cpp-check-tests)
-    gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain;checker;lang-cpp" TIMEOUT 60)
+    gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain\;checker\;lang-cpp" TIMEOUT 60)
 else()
     message(STATUS "topo-lang-cpp tests: checker-e2e suite (topo-lang-cpp-check-tests) "
                    "skipped — TopoCppPlugin not built (requires "
@@ -113,7 +113,7 @@ target_compile_definitions(topo-cpp-extractor-fidelity-tests PRIVATE
 add_dependencies(topo-cpp-extractor-fidelity-tests topo-extract-cpp)
 topo_set_compiler_flags(topo-cpp-extractor-fidelity-tests)
 gtest_discover_tests(topo-cpp-extractor-fidelity-tests DISCOVERY_TIMEOUT 30
-    PROPERTIES LABELS "toolchain;lang-cpp;extractor-fidelity" TIMEOUT 60
+    PROPERTIES LABELS "toolchain\;lang-cpp\;extractor-fidelity" TIMEOUT 60
     ENVIRONMENT "TOPO_EXTRACT_ROOT=${PROJECT_SOURCE_DIR}")
 else()
 message(STATUS
