@@ -284,6 +284,21 @@ jobs:
                 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
           cmake --build "${RUNNER_TEMP}/topo-core-build" --target install
 
+      # topo-llvm's C-ABI runtime libs (topo-parallel/jit-api/adaptive/…) #include
+      # THIS package's runtime/include/topo/*.h (jit.h, parallel.h, adaptive.h …),
+      # so install topo-lang-cpp at DEFAULT scope (ENABLE_LLVM=OFF, LLVM-independent)
+      # into the shared prefix before the topo-llvm core build, or that build fails
+      # with "'topo/adaptive.h' file not found". Mirrors topo-llvm's benchmark job.
+      - name: Build & install topo-lang-cpp (default scope — runtime headers)
+        run: |
+          cmake -S . -B "${RUNNER_TEMP}/lang-cpp-default-build" -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+                -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          cmake --build "${RUNNER_TEMP}/lang-cpp-default-build" --target install
+
       - name: Build & install topo-llvm core (tools OFF, jit-engine ON)
         run: |
           SRC="${RUNNER_TEMP}/topo-llvm-src"
