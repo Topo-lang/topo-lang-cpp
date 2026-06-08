@@ -177,3 +177,145 @@ jobs:
               -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
           cmake --build build
           ./build/smoke
+
+  # ── ENABLE_LLVM=ON verify (extractor-fidelity / check-e2e B-suites) ──────
+  # build-and-test (above) covers only the zero-LLVM header-only unit suite.
+  # The package's LLVM-gated half — TopoCppDriver, the libclang symbol
+  # extractor (topo-extract-cpp), topo-debug-cpp, and the gated test suites
+  # (integration / check-e2e / extractor-fidelity) — is built + run here so a
+  # regression in the C++ extractor / driver / e2e path is caught by THIS
+  # repo's own CI, not only indirectly via topo-llvm's reverse-link job.
+  # Windows is deferred (bundled-clang ABI + static-CRT pinning is its own
+  # iteration); Linux + macOS give additive 2-platform coverage. Uncached, so
+  # slower than build-and-test — an upstream-install cache can be added later.
+  verify-llvm:
+    name: verify (ENABLE_LLVM) (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - uses: actions/checkout@v5
+
+      # ── LLVM toolchain: libclang (extractor), liblldb (topo-debug-cpp link),
+      #    clangd (the L2 containment check must RUN, not GTEST_SKIP) ──
+      - name: Install build deps + LLVM (macos)
+        if: runner.os == 'macOS'
+        run: brew install ninja llvm@22
+
+      - name: Point find_package(LLVM/Clang) + BYO resolver at brew llvm@22 (macos)
+        if: runner.os == 'macOS'
+        run: |
+          BREW_LLVM="$(brew --prefix llvm@22)"
+          echo "LLVM_DIR=${BREW_LLVM}/lib/cmake/llvm"   >> "$GITHUB_ENV"
+          echo "Clang_DIR=${BREW_LLVM}/lib/cmake/clang" >> "$GITHUB_ENV"
+          # TOPO_LLVM_DIR lets topo-core's BYO resolver locate clangd so the L2
+          # containment cases RUN instead of GTEST_SKIP (a skip is not a pass).
+          echo "TOPO_LLVM_DIR=${BREW_LLVM}" >> "$GITHUB_ENV"
+          echo "${BREW_LLVM}/bin" >> "$GITHUB_PATH"
+
+      - name: Install build deps (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build
+
+      - name: Acquire bundled LLVM (linux)
+        if: runner.os == 'Linux'
+        run: |
+          git clone --depth 1 --branch main \
+              https://github.com/topo-lang/topo-llvm.git "${RUNNER_TEMP}/topo-llvm-src"
+          (cd "${RUNNER_TEMP}/topo-llvm-src" && bash scripts/setup-llvm.sh)
+          LLVM_ROOT="${RUNNER_TEMP}/topo-llvm-src/llvm-dev"
+          echo "LLVM_DIR=${LLVM_ROOT}/lib/cmake/llvm"   >> "$GITHUB_ENV"
+          echo "Clang_DIR=${LLVM_ROOT}/lib/cmake/clang" >> "$GITHUB_ENV"
+          echo "TOPO_LLVM_DIR=${LLVM_ROOT}" >> "$GITHUB_ENV"
+          echo "${LLVM_ROOT}/bin" >> "$GITHUB_PATH"
+          # liblldb-22 (topo-debug-cpp link dep) needs libpython3.11, absent on
+          # ubuntu-noble — pull from deadsnakes (mirrors topo-llvm's bench job).
+          sudo apt-get install -y -qq software-properties-common
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt-get update -qq && sudo apt-get install -y -qq libpython3.11
+
+      - name: Export GHA cache env (for vcpkg x-gha backend)
+        uses: actions/github-script@v8
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "56bb2411609227288b70117ead2c47585ba07713"
+
+      # ── Bootstrap the upstream chain into a shared prefix ──
+      - name: Build & install topo-core (zero-LLVM, lang-less)
+        run: |
+          git clone --depth 1 --branch "${TOPO_CORE_REF}" \
+              https://github.com/topo-lang/topo-core.git "${RUNNER_TEMP}/topo-core-src"
+          cmake -S "${RUNNER_TEMP}/topo-core-src" -B "${RUNNER_TEMP}/topo-core-build" \
+                -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+                -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          cmake --build "${RUNNER_TEMP}/topo-core-build" --target install
+
+      - name: Build & install topo-lang
+        run: |
+          git clone --depth 1 --branch "${TOPO_LANG_REF}" \
+              https://github.com/topo-lang/topo-lang.git "${RUNNER_TEMP}/topo-lang-src"
+          cmake -S "${RUNNER_TEMP}/topo-lang-src" -B "${RUNNER_TEMP}/topo-lang-build" \
+                -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+                -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          cmake --build "${RUNNER_TEMP}/topo-lang-build" --target install
+
+      - name: Re-install topo-core (with-lang)
+        run: |
+          cmake -S "${RUNNER_TEMP}/topo-core-src" -B "${RUNNER_TEMP}/topo-core-build" \
+                -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          cmake --build "${RUNNER_TEMP}/topo-core-build" --target install
+
+      - name: Build & install topo-llvm core (tools OFF, jit-engine ON)
+        run: |
+          SRC="${RUNNER_TEMP}/topo-llvm-src"
+          [ -d "$SRC" ] || git clone --depth 1 --branch main \
+              https://github.com/topo-lang/topo-llvm.git "$SRC"
+          LLVM_ROOT="$(dirname "$(dirname "${LLVM_DIR}")")"
+          cmake -S "$SRC" -B "${RUNNER_TEMP}/llvm-core-build" -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install;${LLVM_ROOT}" \
+                -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+                -DTOPO_LLVM_BUILD_TOOLS=OFF -DTOPO_LLVM_BUILD_TESTS=OFF \
+                -DTOPO_LLVM_BUILD_JIT_ENGINE=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          cmake --build "${RUNNER_TEMP}/llvm-core-build" --target install
+
+      # ── Configure THIS checkout with ENABLE_LLVM=ON + tests ──
+      - name: Configure topo-lang-cpp (ENABLE_LLVM=ON, tests ON)
+        run: |
+          LLVM_ROOT="$(dirname "$(dirname "${LLVM_DIR}")")"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DTOPO_LANG_CPP_ENABLE_LLVM=ON \
+              -DTOPO_LANG_CPP_BUILD_TESTS=ON \
+              -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install;${LLVM_ROOT}" \
+              -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test (ENABLE_LLVM-gated suites)
+        run: |
+          # --no-tests=error: a mis-gated 0-tests build FAILS rather than greens.
+          # The zero-LLVM header-only cases also run here (additive). Watch the
+          # log: the L2 containment cases must RUN (clangd resolved via
+          # TOPO_LLVM_DIR / PATH), not GTEST_SKIP — a skip is not a pass.
+          ctest --test-dir build --output-on-failure --timeout 180 --no-tests=error
