@@ -64,7 +64,17 @@ endif()
 # topo::lang::registerCppPlugin() before tests run, so the suite cannot
 # stand on its own without the plugin. TopoCppLSP is unconditional and
 # provides ClangdBridge for CppContainmentTest.
-if(TARGET TopoCppPlugin)
+# The check-e2e suite also needs TopoCheckRunner + its CheckRunner.h, which are
+# defined by topo-cli (topo::cli::TopoCheckRunner) — a package DOWNSTREAM of
+# topo-lang-cpp. topo-lang-cpp cannot depend on topo-cli (it would be a circular
+# edge), so this suite is inherently meta-only: the meta-repo adds topo-cli as a
+# sibling (TopoCheckRunner becomes a target, resolved at generate-time even
+# though topo-cli is add_subdirectory'd AFTER topo-lang-cpp), whereas a STANDALONE
+# ENABLE_LLVM build (e.g. this package's own verify-llvm CI job) has no topo-cli
+# and must skip it. NOT PROJECT_IS_TOP_LEVEL is the signal: false standalone
+# (skip), true under the meta (build). A config-time `if(TARGET TopoCheckRunner)`
+# would wrongly skip in the meta too, since topo-cli configures later.
+if(TARGET TopoCppPlugin AND NOT PROJECT_IS_TOP_LEVEL)
     add_executable(topo-lang-cpp-check-tests
         e2e/TestMain.cpp
         e2e/CppCompletenessTest.cpp
@@ -85,8 +95,8 @@ if(TARGET TopoCppPlugin)
     gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain\;checker\;lang-cpp" TIMEOUT 60)
 else()
     message(STATUS "topo-lang-cpp tests: checker-e2e suite (topo-lang-cpp-check-tests) "
-                   "skipped — TopoCppPlugin not built (requires "
-                   "TOPO_LANG_CPP_ENABLE_LLVM=ON).")
+                   "skipped — needs TopoCppPlugin (TOPO_LANG_CPP_ENABLE_LLVM=ON) AND "
+                   "TopoCheckRunner (topo-cli, meta-repo only).")
 endif()
 
 # Extractor fidelity tests: validate topo-extract-cpp output against

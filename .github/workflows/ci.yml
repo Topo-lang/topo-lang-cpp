@@ -327,10 +327,14 @@ jobs:
       - name: Build
         run: cmake --build build
 
-      - name: Test (ENABLE_LLVM-gated suites)
+      - name: Test (ENABLE_LLVM suites)
         run: |
-          # --no-tests=error: a mis-gated 0-tests build FAILS rather than greens.
-          # The zero-LLVM header-only cases also run here (additive). Watch the
-          # log: the L2 containment cases must RUN (clangd resolved via
-          # TOPO_LLVM_DIR / PATH), not GTEST_SKIP — a skip is not a pass.
+          # Runs the standalone-buildable ENABLE_LLVM suites: header-only unit
+          # cases + integration (TopoCppDriver / NinjaGen) + extractor-fidelity
+          # (topo-extract-cpp over golden fixtures). The check-e2e B-suite
+          # (completeness / containment / purity / visibility / stage-isolation)
+          # is META-ONLY — it links topo-cli's TopoCheckRunner, a package
+          # downstream of this one, so it builds + runs in the meta / topo-cli CI,
+          # not standalone here (the suite self-skips when PROJECT_IS_TOP_LEVEL).
+          # --no-tests=error so a mis-gated 0-tests build FAILS rather than greens.
           ctest --test-dir build --output-on-failure --timeout 180 --no-tests=error
