@@ -61,3 +61,7 @@ install(TARGETS topo-extract-cpp
     EXPORT topo-lang-cppTargets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# Relocatable install: rewrite the absolute libclang load command to @rpath so a
+# copied binary finds libclang via @loader_path/../lib instead of the build host.
+topo_relocate_llvm_rpath(topo-extract-cpp libclang)
