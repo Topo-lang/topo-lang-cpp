@@ -14,6 +14,7 @@ env:
   # Pin upstream refs. Bump together with a compatible upstream tag.
   TOPO_CORE_REF: main
   TOPO_LANG_REF: main
+  TOPO_CLI_REF: main
 
 jobs:
   # ── Build + test against installed topo-core + topo-lang ────────
@@ -314,6 +315,24 @@ jobs:
                 -DTOPO_LLVM_BUILD_JIT_ENGINE=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON
           cmake --build "${RUNNER_TEMP}/llvm-core-build" --target install
 
+      # Uncached on purpose: topo-cli is a thin router + small static lib, and
+      # an always-fresh build tracks its main without a cache key to bump.
+      # Plugins auto-detect to OFF (none on this prefix) — the checker-e2e
+      # suite links only the exported TopoCheckRunner and registers this
+      # repo's plugin itself via TestMain. Profile CLI off: it would pull
+      # topo-v8 into the installed config's find_dependency chain.
+      - name: Build & install topo-cli (TopoCheckRunner export)
+        run: |
+          git clone --depth 1 --branch "${TOPO_CLI_REF}" \
+              https://github.com/topo-lang/topo-cli.git "${RUNNER_TEMP}/topo-cli-src"
+          cmake -S "${RUNNER_TEMP}/topo-cli-src" -B "${RUNNER_TEMP}/topo-cli-build" \
+                -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/topo-cli-install" \
+                -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install" \
+                -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+                -DTOPO_CLI_ENABLE_PROFILE=OFF
+          cmake --build "${RUNNER_TEMP}/topo-cli-build" --target install
+
       # ── Configure THIS checkout with ENABLE_LLVM=ON + tests ──
       - name: Configure topo-lang-cpp (ENABLE_LLVM=ON, tests ON)
         run: |
@@ -321,7 +340,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
               -DTOPO_LANG_CPP_ENABLE_LLVM=ON \
               -DTOPO_LANG_CPP_BUILD_TESTS=ON \
-              -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install;${LLVM_ROOT}" \
+              -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install;${RUNNER_TEMP}/topo-cli-install;${LLVM_ROOT}" \
               -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
 
       - name: Build
@@ -445,10 +464,34 @@ jobs:
         run: |
           # Runs the standalone-buildable ENABLE_LLVM suites: header-only unit
           # cases + integration (TopoCppDriver / NinjaGen) + extractor-fidelity
-          # (topo-extract-cpp over golden fixtures). The check-e2e B-suite
-          # (completeness / containment / purity / visibility / stage-isolation)
-          # is META-ONLY — it links topo-cli's TopoCheckRunner, a package
-          # downstream of this one, so it builds + runs in the meta / topo-cli CI,
-          # not standalone here (the suite self-skips when PROJECT_IS_TOP_LEVEL).
+          # (topo-extract-cpp over golden fixtures) + the checker-e2e suite
+          # (completeness / containment / purity / visibility / stage-isolation),
+          # which now builds standalone against the installed topo-cli's
+          # exported TopoCheckRunner — this job installs clangd precisely so
+          # the L2 deep-containment cases RUN here.
           # --no-tests=error so a mis-gated 0-tests build FAILS rather than greens.
           ctest --test-dir build --output-on-failure --timeout 180 --no-tests=error
+
+      # The checker suite passes ctest even when its gtest cases GTEST_SKIP()
+      # (clangd absent / degraded) — "Passed" can mean "every case skipped".
+      # Re-run the binary and FAIL on any skip or zero passes (skip != pass).
+      - name: Assert cpp L2 deep containment ran (skip != pass)
+        run: |
+          set +e
+          exe=$(find build -type f -name "topo-lang-cpp-check-tests" 2>/dev/null | head -1)
+          if [ -z "${exe}" ]; then
+            echo "::error::topo-lang-cpp-check-tests not built — topo-cli prefix missing at configure time?"; exit 1
+          fi
+          out=$("${exe}" 2>&1); rc=$?
+          printf '%s\n' "${out}" | tail -15
+          passed=$(printf '%s\n' "${out}" | grep -oE '\[  PASSED  \] [0-9]+ test' | grep -oE '[0-9]+' | tail -1)
+          skipped=$(printf '%s\n' "${out}" | grep -oE '\[  SKIPPED \] [0-9]+ test' | grep -oE '[0-9]+' | tail -1)
+          [ -z "${passed}" ] && passed=0
+          [ -z "${skipped}" ] && skipped=0
+          echo "topo-lang-cpp-check-tests: ${passed} PASSED, ${skipped} skipped (exit ${rc})"
+          if [ "${rc}" -ne 0 ]; then
+            echo "::error::checker-e2e suite failed (exit ${rc})"; exit 1
+          fi
+          if [ "${skipped}" -gt 0 ] || [ "${passed}" -lt 1 ]; then
+            echo "::error::cpp L2 deep containment did not RUN (clangd missing -> GTEST_SKIP; skip != pass)"; exit 1
+          fi
