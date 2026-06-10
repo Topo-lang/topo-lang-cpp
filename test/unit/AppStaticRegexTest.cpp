@@ -2,8 +2,8 @@
 // (runtime/include/topo/app_static.h). The header is the documented,
 // no-clang FALLBACK producer; its opening contract promises each known
 // gap is surfaced "rather than silently mis-extracting". These tests pin
-// the five shapes that previously violated that contract — see
-// .aidesk/live/40-issue/app-static-regex-silent-misread-adjacent-literal.md:
+// the five shapes that previously violated that contract (each used to be
+// mis-read silently instead of being parsed correctly or rejected loudly):
 //
 //   1. adjacent string-literal handler / flow names ("re" "duce")
 //   2. bare `char` parity with app.h's scalar_of<char>() (Int, not Str)

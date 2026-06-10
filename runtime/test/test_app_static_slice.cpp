@@ -343,6 +343,19 @@ static std::string write_temp_src(const char* body, const char* name) {
 }
 
 static void T4_zero_declaration_check() {
+    // T4 drives the real `topo-check` against C++ sources, which requires
+    // the cpp language plugin linked into the CLI. The ctest registration
+    // exports TOPO_SLICE_HAS_CPP_CHECK=0 in plugin-less configures (no
+    // TopoCppPlugin target — e.g. the zero-LLVM default scope, whose
+    // topo-check answers "no language plugin registered"); skip LOUDLY
+    // there — the assertion still runs wherever the plugin is built.
+    if (const char* has = std::getenv("TOPO_SLICE_HAS_CPP_CHECK");
+        has && std::string(has) == "0") {
+        std::cout << "SKIP T4 zero-decl check: topo-check carries no cpp "
+                     "plugin in this configure (covered by plugin-enabled "
+                     "configures)\n";
+        return;
+    }
     // Compliant flow passes zero-decl topo-check, driven entirely off the
     // clang-AST front-end's graph (no hand-written .topo anywhere).
     {
@@ -494,11 +507,12 @@ static void R2_auto_return_handler() {
 //
 // The registration calls are split across many lines AND the registered
 // name arrives as a C++ adjacent-string-literal concatenation
-// (`"in" "gest"`). The regex MVP's handler pattern captures only the
-// FIRST literal fragment, so it registers the handler under the wrong,
-// truncated name — a silent mis-read. clang concatenates adjacent string
-// literals into one StringLiteral whose value is the full name, and sees
-// one CXXMemberCallExpr regardless of source-line layout.
+// (`"in" "gest"`). The regex MVP used to capture only the FIRST literal
+// fragment and register the handler under a truncated name — a silent
+// mis-read, since fixed: it now concatenates adjacent literals and reads
+// across lines, matching what clang's AST always saw (one StringLiteral
+// with the full value, one CXXMemberCallExpr regardless of layout). Both
+// front-ends must agree on this shape.
 static void R3_cross_line_registration() {
     static const char* kSrc = R"CPP(
         #include <string>
@@ -538,10 +552,15 @@ static void R3_cross_line_registration() {
     CHECK(g.has_flow() && g.flow().name == "p" && g.flow().edges.size() == 2,
           "R3 cross-line flow recovered");
 
+    // The regex MVP used to truncate adjacent-literal names to their first
+    // fragment (a silent mis-read); it now concatenates them and tolerates
+    // the cross-line layout, so this shape is regex-recoverable — pin the
+    // closed gap (the conservative fall-back ADVISORY for indirect
+    // registration may still print; equivalence is what matters here).
     std::string note;
-    CHECK(regex_mvp_misreads(kSrc, g, note),
-          "R3 regex MVP must misread cross-line/adjacent-literal "
-          "registration; " << note);
+    CHECK(!regex_mvp_misreads(kSrc, g, note),
+          "R3 regex MVP recovers cross-line/adjacent-literal registration "
+          "(gap closed by the adjacent-literal fix); " << note);
 }
 
 // ---- R4: record field types through using / typedef / template alias ----
