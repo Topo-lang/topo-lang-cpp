@@ -69,17 +69,25 @@ endif()
 # topo::lang::registerCppPlugin() before tests run, so the suite cannot
 # stand on its own without the plugin. TopoCppLSP is unconditional and
 # provides ClangdBridge for CppContainmentTest.
-# The check-e2e suite also needs TopoCheckRunner + its CheckRunner.h, which are
-# defined by topo-cli (topo::cli::TopoCheckRunner) — a package DOWNSTREAM of
-# topo-lang-cpp. topo-lang-cpp cannot depend on topo-cli (it would be a circular
-# edge), so this suite is inherently meta-only: the meta-repo adds topo-cli as a
-# sibling (TopoCheckRunner becomes a target, resolved at generate-time even
-# though topo-cli is add_subdirectory'd AFTER topo-lang-cpp), whereas a STANDALONE
-# ENABLE_LLVM build (e.g. this package's own verify-llvm CI job) has no topo-cli
-# and must skip it. NOT PROJECT_IS_TOP_LEVEL is the signal: false standalone
-# (skip), true under the meta (build). A config-time `if(TARGET TopoCheckRunner)`
-# would wrongly skip in the meta too, since topo-cli configures later.
-if(TARGET TopoCppPlugin AND NOT PROJECT_IS_TOP_LEVEL)
+# The check-e2e suite also needs TopoCheckRunner + its CheckRunner.h, defined
+# by topo-cli (topo::cli::TopoCheckRunner) — a package DOWNSTREAM of
+# topo-lang-cpp (a hard dependency would be a circular edge). Two paths in:
+#   * meta build — topo-cli is a sibling subdirectory; the bare TopoCheckRunner
+#     target resolves at generate time even though topo-cli configures later
+#     (NOT PROJECT_IS_TOP_LEVEL is that signal; a config-time
+#     if(TARGET TopoCheckRunner) would wrongly skip).
+#   * standalone — topo-cli exports the runner; when an installed topo-cli is
+#     on CMAKE_PREFIX_PATH the imported target is aliased to the bare name
+#     (same pattern as the rust/java/python/typescript check suites). This is
+#     what the verify-llvm CI job uses, so cpp L2 containment actually RUNS on
+#     a public surface instead of being meta-only.
+if(TARGET TopoCppPlugin AND PROJECT_IS_TOP_LEVEL AND NOT TARGET TopoCheckRunner)
+    find_package(topo-cli CONFIG QUIET)
+    if(TARGET topo::cli::TopoCheckRunner AND NOT TARGET TopoCheckRunner)
+        add_library(TopoCheckRunner ALIAS topo::cli::TopoCheckRunner)
+    endif()
+endif()
+if(TARGET TopoCppPlugin AND (NOT PROJECT_IS_TOP_LEVEL OR TARGET TopoCheckRunner))
     add_executable(topo-lang-cpp-check-tests
         e2e/TestMain.cpp
         e2e/CppCompletenessTest.cpp
@@ -101,7 +109,8 @@ if(TARGET TopoCppPlugin AND NOT PROJECT_IS_TOP_LEVEL)
 else()
     message(STATUS "topo-lang-cpp tests: checker-e2e suite (topo-lang-cpp-check-tests) "
                    "skipped — needs TopoCppPlugin (TOPO_LANG_CPP_ENABLE_LLVM=ON) AND "
-                   "TopoCheckRunner (topo-cli, meta-repo only).")
+                   "TopoCheckRunner (in-tree via the meta build, or an installed "
+                   "topo-cli on CMAKE_PREFIX_PATH).")
 endif()
 
 # Extractor fidelity tests: validate topo-extract-cpp output against
