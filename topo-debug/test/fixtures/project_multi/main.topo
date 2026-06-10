@@ -5,7 +5,10 @@
 // adapter protocol. The summary batching refactor packs all
 // placeholder vars into a single adapter spawn.
 
-std::import("cstdint", int32_t);
+// Host scalar binding via the std::cpp17 type library (a filesystem
+// std::import of "cstdint" cannot resolve project-relatively, so the
+// default-on topo-check stage would fail the build on import-path).
+using int32_t = std::cpp17::int32_t;
 
 namespace app {
   public:
