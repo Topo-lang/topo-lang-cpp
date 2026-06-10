@@ -43,13 +43,25 @@ set_target_properties(topo-app-static-slice-tests PROPERTIES
 add_dependencies(topo-app-static-slice-tests
     topo topo-check topo-app-static-cpp)
 
+# T4 (the zero-decl check round-trip) drives `topo-check` against C++
+# sources, which works only when the cpp language plugin is linked into
+# the CLI — i.e. when TopoCppPlugin exists in this configure (ENABLE_LLVM
+# scope). In plugin-less configures the binary SKIPS T4 loudly instead of
+# failing on "no language plugin registered"; the full assertion runs in
+# every configure that builds the plugin (and on the verify-llvm CI lane).
+if(TARGET TopoCppPlugin)
+    set(_slice_t4_env "TOPO_SLICE_HAS_CPP_CHECK=1")
+else()
+    set(_slice_t4_env "TOPO_SLICE_HAS_CPP_CHECK=0")
+endif()
+
 add_test(NAME topo-app-static-slice
          COMMAND topo-app-static-slice-tests)
 set_tests_properties(topo-app-static-slice PROPERTIES
     LABELS "toolchain;lang-cpp;topo-app"
     TIMEOUT 120
     ENVIRONMENT
-        "TOPO_BIN=$<TARGET_FILE:topo>;TOPO_CHECK_BIN=$<TARGET_FILE:topo-check>;TOPO_APP_STATIC_CPP=$<TARGET_FILE:topo-app-static-cpp>")
+        "TOPO_BIN=$<TARGET_FILE:topo>;TOPO_CHECK_BIN=$<TARGET_FILE:topo-check>;TOPO_APP_STATIC_CPP=$<TARGET_FILE:topo-app-static-cpp>;${_slice_t4_env}")
 
 # --- ast-dump consumption pin (cross-component contract test) -----------
 #
