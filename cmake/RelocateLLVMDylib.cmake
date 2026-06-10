@@ -1,6 +1,6 @@
 # RelocateLLVMDylib.cmake — install-time step that makes an installed Mach-O
 # tool relocatable. It rewrites the tool's build-host-absolute libLLVM /
-# libclang load command (e.g. /opt/homebrew/opt/llvm/lib/libclang.dylib) to
+# libclang load command (e.g. /opt/homebrew/opt/llvm/lib/libLLVM.dylib) to
 # @rpath/<basename>, so a relocated binary loads the dylib through its
 # @loader_path/../lib rpath (a bundled copy) or the BYO loader-path injection
 # (topo-core ensureLLVMLoaderPathForChildren) instead of a path that only
@@ -40,7 +40,7 @@ set(_relocated 0)
 foreach(_line IN LISTS _otool_lines)
     string(STRIP "${_line}" _line)
     # otool -L dependency line, post-strip:
-    #   /abs/path/libclang.dylib (compatibility version ..., current version ...)
+    #   /abs/path/libLLVM.dylib (compatibility version ..., current version ...)
     # Match only an ABSOLUTE path ending in <pattern>*.dylib (already-@rpath
     # deps start with '@' and are skipped).
     if(_line MATCHES "^(/[^ ]+/(${TOPO_RELOC_PATTERN}[^ /]*\\.dylib))[ \t]")
