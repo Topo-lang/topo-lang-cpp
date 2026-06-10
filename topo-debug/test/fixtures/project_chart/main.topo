@@ -9,7 +9,10 @@
 // removed because web-rendering is deliberately unimplemented —
 // SemanticAnalyzer rejects `render` blocks (parsed but no behavior).
 
-std::import("cstdint", int32_t);
+// Host scalar binding via the std::cpp17 type library (a filesystem
+// std::import of "cstdint" cannot resolve project-relatively, so the
+// default-on topo-check stage would fail the build on import-path).
+using int32_t = std::cpp17::int32_t;
 
 namespace app {
   public:

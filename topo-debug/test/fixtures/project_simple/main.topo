@@ -9,7 +9,10 @@
 // (with the view), `topo debug` auto-discovers it next to ./main and
 // rewrites `first_half` to `data[0..8]` before driving the lldb adapter.
 
-std::import("cstdint", int32_t);
+// Host scalar binding via the std::cpp17 type library (a filesystem
+// std::import of "cstdint" cannot resolve project-relatively, so the
+// default-on topo-check stage would fail the build on import-path).
+using int32_t = std::cpp17::int32_t;
 
 namespace app {
   public:
