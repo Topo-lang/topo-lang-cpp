@@ -15,8 +15,27 @@ endif()
 # Derive LLDB paths from the LLVM distribution selected by find_package(LLVM).
 # LLVM_INSTALL_PREFIX is set by LLVMConfig.cmake; bundled topo-llvm/llvm-dev/
 # and brew/system LLVM share the same layout.
-set(_LLDB_INCLUDE_DIR "${LLVM_INSTALL_PREFIX}/include")
-set(_LLDB_LIB_DIR "${LLVM_INSTALL_PREFIX}/lib")
+set(_LLDB_PREFIX "${LLVM_INSTALL_PREFIX}")
+# Prefer the stable unversioned Homebrew opt symlink over the versioned Cellar
+# keg LLVMConfig may resolve to (…/Cellar/llvm/22.1.7 → …/opt/llvm): the cache
+# entry derived below (LLDB_LIBRARY) and the BUILD_RPATH/dev-fallback rpath
+# would otherwise dangle after every `brew upgrade llvm` patch bump.
+if(_LLDB_PREFIX MATCHES "^(.+)/Cellar/(llvm[^/]*)/[^/]+$")
+    set(_LLDB_PREFIX_STABLE "${CMAKE_MATCH_1}/opt/${CMAKE_MATCH_2}")
+    if(EXISTS "${_LLDB_PREFIX_STABLE}/lib")
+        set(_LLDB_PREFIX "${_LLDB_PREFIX_STABLE}")
+    endif()
+endif()
+set(_LLDB_INCLUDE_DIR "${_LLDB_PREFIX}/include")
+set(_LLDB_LIB_DIR "${_LLDB_PREFIX}/lib")
+
+# Heal a dangling cache entry (a versioned Cellar path cached before an LLVM
+# patch bump) so a plain reconfigure re-probes instead of failing at build
+# time on the vanished keg.
+if(LLDB_LIBRARY AND NOT EXISTS "${LLDB_LIBRARY}")
+    message(STATUS "topo-debug-cpp: cached LLDB_LIBRARY dangles (${LLDB_LIBRARY}) — re-probing")
+    unset(LLDB_LIBRARY CACHE)
+endif()
 
 # Discover the liblldb library file (Linux: .so, macOS: .dylib, Windows: .dll).
 find_library(LLDB_LIBRARY
@@ -58,12 +77,15 @@ topo_set_compiler_flags(topo-debug-cpp)
 
 # RPATH so the binary finds liblldb.dylib at runtime. BUILD_RPATH keeps the
 # build-tree binary pointing at the build host's LLVM lib dir (dev runs work
-# unchanged). INSTALL_RPATH is relocation-safe: @loader_path/../lib resolves
-# liblldb relative to the installed binary (so a packaged tree that ships its
-# own lib/ works), with the build host's lib dir kept only as a dev fallback.
+# unchanged). INSTALL_RPATH keeps that dir as the dev fallback;
+# topo_relocate_llvm_rpath below prepends the relocation rpath
+# (@loader_path/../lib / $ORIGIN/../lib) ahead of it AND — on macOS — rewrites
+# the absolute liblldb.<ver> load command to @rpath/<name> on the installed
+# copy. Without that rewrite the relocation rpath is dead weight: dyld
+# consults LC_RPATH only for @rpath/ load commands.
 set_target_properties(topo-debug-cpp PROPERTIES
     BUILD_RPATH "${_LLDB_LIB_DIR}"
-    INSTALL_RPATH "@loader_path/../lib;${_LLDB_LIB_DIR}"
+    INSTALL_RPATH "${_LLDB_LIB_DIR}"
 )
 
 install(TARGETS TopoDebugAdapter topo-debug-cpp
@@ -72,6 +94,9 @@ install(TARGETS TopoDebugAdapter topo-debug-cpp
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# Relocatable install: see the rpath note above.
+topo_relocate_llvm_rpath(topo-debug-cpp liblldb)
 
 # Test fixtures (tiny_matrix / tiny_vector / project_simple / ...) are only
 # meaningful inside the monorepo where topo-core/test consumes them as
