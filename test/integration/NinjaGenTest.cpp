@@ -141,6 +141,33 @@ TEST_F(NinjaGenTest, GenerateWithDefines) {
     EXPECT_NE(content.find("-DTOPO_HAS_ADAPTIVE"), std::string::npos);
 }
 
+TEST_F(NinjaGenTest, GenerateWithCppFlags) {
+    BuildConfig cfg;
+    cfg.hostCompilerPath = "clang++";
+    cfg.standard = "c++17";
+    cfg.sources = {(testDir / "main.cpp").string()};
+    cfg.cppFlags = {"-DTOPO_FLAGS_PROOF", "-fno-omit-frame-pointer"};
+    cfg.outputType = OutputType::Exe;
+
+    fs::path ninjaPath = cacheDir / "build.ninja";
+    ASSERT_TRUE(NinjaGen::generate(cfg, ninjaPath, irDir));
+
+    std::string content = readFile(ninjaPath);
+    // [build.cpp].flags land after the built-ins (user flags win — clang
+    // last-flag-wins) and before the dependency tail.
+    auto stdPos = content.find("-std=c++17");
+    auto proofPos = content.find("-DTOPO_FLAGS_PROOF");
+    auto framePos = content.find("-fno-omit-frame-pointer");
+    auto depPos = content.find("-MD -MF");
+    ASSERT_NE(stdPos, std::string::npos);
+    ASSERT_NE(proofPos, std::string::npos);
+    ASSERT_NE(framePos, std::string::npos);
+    ASSERT_NE(depPos, std::string::npos);
+    EXPECT_LT(stdPos, proofPos);
+    EXPECT_LT(proofPos, framePos);
+    EXPECT_LT(framePos, depPos);
+}
+
 #ifndef _WIN32
 TEST_F(NinjaGenTest, GenerateSharedLibFlagsUnix) {
     BuildConfig cfg;

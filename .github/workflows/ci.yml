@@ -12,7 +12,10 @@ concurrency:
 
 env:
   # Pin upstream refs. Bump together with a compatible upstream tag.
-  TOPO_CORE_REF: main
+  # topo-core pinned to dev: CppDriver/NinjaGen consume the new
+  # BuildConfig::cppFlags field ([build.cpp].flags passthrough), which is
+  # on topo-core dev — flip back to main at promotion.
+  TOPO_CORE_REF: dev
   TOPO_LANG_REF: main
   TOPO_CLI_REF: main
 
@@ -64,11 +67,12 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/topo-install
-          # v2: topo-core gained the BYO LLVM toolchain resolver API
-          # (llvmToolPath / llvmResourceDir, used by the host bridges); the
-          # upstream cache is keyed on the literal ref "main", so bump to force
-          # a fresh topo-core rebuild that carries the new headers.
-          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v2
+          # v3: topo-core BuildConfig gained cppFlags ([build.cpp].flags),
+          # consumed by CppDriver/NinjaGen here; the upstream cache is keyed
+          # on a literal ref, so bump to force a fresh topo-core rebuild that
+          # carries the new header — a stale install lacks the field and this
+          # repo no longer compiles.
+          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v3
 
       - name: Build & install topo-core (zero-LLVM, lang-less)
         if: steps.upstream-cache.outputs.cache-hit != 'true'

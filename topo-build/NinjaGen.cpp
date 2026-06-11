@@ -112,6 +112,13 @@ bool NinjaGen::generate(const BuildConfig& cfg, const fs::path& ninjaPath, const
     if (cfg.embedIR) cmd << " -DTOPO_HAS_JIT";
     if (cfg.adaptiveCfg.isEnabled()) cmd << " -DTOPO_HAS_ADAPTIVE";
 
+    // [build.cpp].flags — appended after the built-ins so user flags win
+    // (clang last-flag-wins). Ninja re-hashes the command line, so a flags
+    // edit re-compiles automatically.
+    for (const auto& flag : cfg.cppFlags) {
+        cmd << " " << ninjaEscape(flag);
+    }
+
     // -MD -MF for dependency tracking
     cmd << " -MD -MF $DEP_FILE $in -o $out";
 
