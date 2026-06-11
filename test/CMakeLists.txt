@@ -93,6 +93,7 @@ if(TARGET TopoCppPlugin AND (NOT PROJECT_IS_TOP_LEVEL OR TARGET TopoCheckRunner)
         e2e/CppContainmentTest.cpp
         e2e/CppImportPathTest.cpp
         e2e/CppPurityTest.cpp
+        e2e/CppShowcaseTest.cpp
         e2e/CppVisibilityTest.cpp
         e2e/CppStageIsolationTest.cpp
     )
@@ -100,8 +101,12 @@ if(TARGET TopoCppPlugin AND (NOT PROJECT_IS_TOP_LEVEL OR TARGET TopoCheckRunner)
         TopoCheckRunner TopoCppPlugin TopoCppLSP
         GTest::gtest
     )
+    # Anchored on this test dir's parent (the topo-lang-cpp source root) so
+    # the path resolves in both the meta and the standalone build (same
+    # rationale as the include dirs of topo-lang-cpp-tests above).
     target_compile_definitions(topo-lang-cpp-check-tests PRIVATE
         TOPO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/check"
+        TOPO_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples"
     )
     topo_set_compiler_flags(topo-lang-cpp-check-tests)
     gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain\;checker\;lang-cpp" TIMEOUT 60)
