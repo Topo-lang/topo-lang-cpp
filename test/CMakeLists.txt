@@ -62,59 +62,12 @@ set_property(TARGET topo-lang-cpp-integration-tests PROPERTY JOB_POOL_LINK llvm_
 gtest_discover_tests(topo-lang-cpp-integration-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "integration\;lang-cpp" TIMEOUT 60)
 endif()
 
-# Checker E2E tests (completeness + containment + purity + visibility + stage-isolation).
-# TopoCppPlugin is unconditional (zero-LLVM aggregator, added in every
-# configure of this package), so the EFFECTIVE gate below is TopoCheckRunner
-# availability. TestMain.cpp must call topo::lang::registerCppPlugin() before
-# tests run, so the suite cannot stand on its own without the plugin.
-# TopoCppLSP is unconditional and provides ClangdBridge for CppContainmentTest.
-# The check-e2e suite also needs TopoCheckRunner + its CheckRunner.h, defined
-# by topo-cli (topo::cli::TopoCheckRunner) — a package DOWNSTREAM of
-# topo-lang-cpp (a hard dependency would be a circular edge). Two paths in:
-#   * meta build — topo-cli is a sibling subdirectory; the bare TopoCheckRunner
-#     target resolves at generate time even though topo-cli configures later
-#     (NOT PROJECT_IS_TOP_LEVEL is that signal; a config-time
-#     if(TARGET TopoCheckRunner) would wrongly skip).
-#   * standalone — topo-cli exports the runner; when an installed topo-cli is
-#     on CMAKE_PREFIX_PATH the imported target is aliased to the bare name
-#     (same pattern as the rust/java/python/typescript check suites). This is
-#     what the verify-llvm CI job uses, so cpp L2 containment actually RUNS on
-#     a public surface instead of being meta-only.
-if(TARGET TopoCppPlugin AND PROJECT_IS_TOP_LEVEL AND NOT TARGET TopoCheckRunner)
-    find_package(topo-cli CONFIG QUIET)
-    if(TARGET topo::cli::TopoCheckRunner AND NOT TARGET TopoCheckRunner)
-        add_library(TopoCheckRunner ALIAS topo::cli::TopoCheckRunner)
-    endif()
-endif()
-if(TARGET TopoCppPlugin AND (NOT PROJECT_IS_TOP_LEVEL OR TARGET TopoCheckRunner))
-    add_executable(topo-lang-cpp-check-tests
-        e2e/TestMain.cpp
-        e2e/CppCompletenessTest.cpp
-        e2e/CppContainmentTest.cpp
-        e2e/CppImportPathTest.cpp
-        e2e/CppPurityTest.cpp
-        e2e/CppShowcaseTest.cpp
-        e2e/CppVisibilityTest.cpp
-        e2e/CppStageIsolationTest.cpp
-    )
-    target_link_libraries(topo-lang-cpp-check-tests PRIVATE
-        TopoCheckRunner TopoCppPlugin TopoCppLSP
-        GTest::gtest
-    )
-    # Anchored on this test dir's parent (the topo-lang-cpp source root) so
-    # the path resolves in both the meta and the standalone build (same
-    # rationale as the include dirs of topo-lang-cpp-tests above).
-    target_compile_definitions(topo-lang-cpp-check-tests PRIVATE
-        TOPO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/check"
-        TOPO_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples"
-    )
-    topo_set_compiler_flags(topo-lang-cpp-check-tests)
-    gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain\;checker\;lang-cpp" TIMEOUT 60)
-else()
-    message(STATUS "topo-lang-cpp tests: checker-e2e suite (topo-lang-cpp-check-tests) "
-                   "skipped — needs TopoCheckRunner (in-tree via the meta build, or an "
-                   "installed topo-cli on CMAKE_PREFIX_PATH).")
-endif()
+# Checker E2E suite — lives in check-e2e/ as a self-gating, idempotent file
+# so a meta-style super-build can re-add it after its topo-cli sibling
+# configures; see check-e2e/CMakeLists.txt for the gating rationale. This
+# inline add covers the standalone path (installed topo-cli on
+# CMAKE_PREFIX_PATH) and self-skips with a STATUS message otherwise.
+add_subdirectory(check-e2e)
 
 # Extractor fidelity tests: validate topo-extract-cpp output against
 # golden fixtures for symbol-extraction parity.
