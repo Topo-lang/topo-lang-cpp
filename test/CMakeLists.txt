@@ -63,12 +63,11 @@ gtest_discover_tests(topo-lang-cpp-integration-tests DISCOVERY_TIMEOUT 30 PROPER
 endif()
 
 # Checker E2E tests (completeness + containment + purity + visibility + stage-isolation).
-# Gated on TopoCppPlugin (added in topo-lang-cpp/CMakeLists.txt only when
-# TOPO_LANG_CPP_ENABLE_LLVM=ON — the plugin aggregator pulls PRIVATE includes
-# from the LLVM-gated topo-build/topo-debug subdirs). TestMain.cpp must call
-# topo::lang::registerCppPlugin() before tests run, so the suite cannot
-# stand on its own without the plugin. TopoCppLSP is unconditional and
-# provides ClangdBridge for CppContainmentTest.
+# TopoCppPlugin is unconditional (zero-LLVM aggregator, added in every
+# configure of this package), so the EFFECTIVE gate below is TopoCheckRunner
+# availability. TestMain.cpp must call topo::lang::registerCppPlugin() before
+# tests run, so the suite cannot stand on its own without the plugin.
+# TopoCppLSP is unconditional and provides ClangdBridge for CppContainmentTest.
 # The check-e2e suite also needs TopoCheckRunner + its CheckRunner.h, defined
 # by topo-cli (topo::cli::TopoCheckRunner) — a package DOWNSTREAM of
 # topo-lang-cpp (a hard dependency would be a circular edge). Two paths in:
@@ -108,9 +107,8 @@ if(TARGET TopoCppPlugin AND (NOT PROJECT_IS_TOP_LEVEL OR TARGET TopoCheckRunner)
     gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain\;checker\;lang-cpp" TIMEOUT 60)
 else()
     message(STATUS "topo-lang-cpp tests: checker-e2e suite (topo-lang-cpp-check-tests) "
-                   "skipped — needs TopoCppPlugin (TOPO_LANG_CPP_ENABLE_LLVM=ON) AND "
-                   "TopoCheckRunner (in-tree via the meta build, or an installed "
-                   "topo-cli on CMAKE_PREFIX_PATH).")
+                   "skipped — needs TopoCheckRunner (in-tree via the meta build, or an "
+                   "installed topo-cli on CMAKE_PREFIX_PATH).")
 endif()
 
 # Extractor fidelity tests: validate topo-extract-cpp output against

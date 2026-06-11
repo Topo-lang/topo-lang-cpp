@@ -346,9 +346,10 @@ static void T4_zero_declaration_check() {
     // T4 drives the real `topo-check` against C++ sources, which requires
     // the cpp language plugin linked into the CLI. The ctest registration
     // exports TOPO_SLICE_HAS_CPP_CHECK=0 in plugin-less configures (no
-    // TopoCppPlugin target — e.g. the zero-LLVM default scope, whose
-    // topo-check answers "no language plugin registered"); skip LOUDLY
-    // there — the assertion still runs wherever the plugin is built.
+    // TopoCppPlugin target — a defensive embedding-only case now that the
+    // zero-LLVM aggregator builds unconditionally; such a topo-check
+    // answers "no language plugin registered"); skip LOUDLY there — the
+    // assertion runs wherever the plugin is built.
     if (const char* has = std::getenv("TOPO_SLICE_HAS_CPP_CHECK");
         has && std::string(has) == "0") {
         std::cout << "SKIP T4 zero-decl check: topo-check carries no cpp "

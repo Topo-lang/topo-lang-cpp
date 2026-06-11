@@ -93,12 +93,13 @@ add_subdirectory(topo-profile)
 if(TOPO_LANG_CPP_ENABLE_LLVM)
     add_subdirectory(topo-check/extractor)
 endif()
-# Plugin aggregator — depends on the above libs. Some PRIVATE includes
-# point into LLVM-gated subdirs, so we gate it on TOPO_LANG_CPP_ENABLE_LLVM
-# for the pilot (covering it requires the build/debug subdirs being live).
-if(TOPO_LANG_CPP_ENABLE_LLVM)
-    add_subdirectory(topo-lang)
-endif()
+# Plugin aggregator — unconditional. Its full closure is zero-LLVM:
+# topo::lang::TopoLang + TopoCpp{Init,Analysis,Check,Transpile,LSP}, all
+# added unconditionally above, and its PRIVATE includes point only into
+# topo-check/analysis, topo-check/runner, topo-transpile, topo-lsp. The
+# LLVM-dependent pieces (CppDriver, debug adapter, profile fixture,
+# LibTooling extractor) are separate targets gated above.
+add_subdirectory(topo-lang)
 
 # ── Install / export ──────────────────────────────────
 install(EXPORT topo-lang-cppTargets
