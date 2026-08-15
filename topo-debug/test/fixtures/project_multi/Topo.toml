@@ -5,3 +5,14 @@ root = "main.topo"
 language = "cpp"
 sources = ["main.cpp"]
 output = "main"
+
+[completeness]
+# `TwoArrays` is the debug-view anchor type: main.topo declares it so the
+# `debug TwoArrays` entry has a type to attach its views to, but the host
+# code has no class `TwoArrays` — the views bind to the stack-local
+# `int a[4]` / `int b[4]` arrays in main.cpp by name at the breakpoint. The
+# declared-but-not-found completeness warning is therefore correct, not an
+# extractor miss; suppress it so the fixture stays check-clean now that
+# every `topo build` runs topo-check by default (same pattern as
+# topo-lang-java's project_multi fixture).
+ignore_patterns = ["app::TwoArrays"]

@@ -6,6 +6,10 @@
 # topo-cli on the prefix). Self-gating + idempotent: safe to
 # add_subdirectory() twice — whichever pass first finds the runner defines
 # the suite.
+#
+# Also includes fixture-check-clean.cmake (the per-fixture topo-check guard
+# over the topo-debug project fixtures) — same late-hook rationale: its
+# topo-check target only exists after topo-cli configures.
 
 if(TARGET topo-lang-cpp-check-tests)
     return()
@@ -65,3 +69,8 @@ target_compile_definitions(topo-lang-cpp-check-tests PRIVATE
 )
 topo_set_compiler_flags(topo-lang-cpp-check-tests)
 gtest_discover_tests(topo-lang-cpp-check-tests DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "toolchain\;checker\;lang-cpp" TIMEOUT 60)
+
+# Per-fixture check-clean ctest guard over the topo-debug project fixtures
+# (rc=0 AND warning-free stdout). Self-gates on the in-tree topo-check
+# target; see fixture-check-clean.cmake for the full rationale.
+include("${CMAKE_CURRENT_LIST_DIR}/fixture-check-clean.cmake")
