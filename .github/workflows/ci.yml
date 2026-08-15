@@ -197,10 +197,10 @@ jobs:
           # FIRST on PATH to resolve libstdc++/libgcc at exec time (the
           # same fix the Test step uses) — a missing DLL surfaces as
           # bash exit 127.
-          if [ "" = "Windows" ]; then
-            cxx=20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701grep -m1 '^CMAKE_CXX_COMPILER:' build/CMakeCache.txt | cut -d= -f2)
-            if [ -n "" ]; then
-              export PATH="20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701cygpath -u "20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701dirname "")"):"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cxx=$(grep -m1 '^CMAKE_CXX_COMPILER:' build/CMakeCache.txt | cut -d= -f2)
+            if [ -n "$cxx" ]; then
+              export PATH="$(cygpath -u "$(dirname "$cxx")"):${PATH}"
             fi
             ./build/smoke.exe
           else
