@@ -192,8 +192,20 @@ jobs:
               -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
           cmake --build build
           # bash does not resolve the .exe suffix for exec — the Windows
-          # runner builds smoke.exe, every other leg builds smoke.
-          if [ "$RUNNER_OS" = "Windows" ]; then ./build/smoke.exe; else ./build/smoke; fi
+          # runner builds smoke.exe, every other leg builds smoke. The
+          # MinGW-linked smoke.exe also needs its build-time gcc bin dir
+          # FIRST on PATH to resolve libstdc++/libgcc at exec time (the
+          # same fix the Test step uses) — a missing DLL surfaces as
+          # bash exit 127.
+          if [ "" = "Windows" ]; then
+            cxx=20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701grep -m1 '^CMAKE_CXX_COMPILER:' build/CMakeCache.txt | cut -d= -f2)
+            if [ -n "" ]; then
+              export PATH="20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701cygpath -u "20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701dirname "")"):"
+            fi
+            ./build/smoke.exe
+          else
+            ./build/smoke
+          fi
 
   # ── ENABLE_LLVM=ON verify (extractor-fidelity / check-e2e B-suites) ──────
   # build-and-test (above) covers only the zero-LLVM header-only unit suite.
