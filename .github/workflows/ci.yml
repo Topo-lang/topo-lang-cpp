@@ -72,7 +72,11 @@ jobs:
           # on a literal ref, so bump to force a fresh topo-core rebuild that
           # carries the new header — a stale install lacks the field and this
           # repo no longer compiles.
-          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v3
+          # v4: the topo-core dev branch TIP advanced (fix batch merged to
+          # dev); the key interpolates the ref, not the ref's content, so a
+          # cache saved against the pre-merge dev would keep serving the
+          # fix-less core. Bump to force the fresh clone.
+          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v4
 
       - name: Build & install topo-core (zero-LLVM, lang-less)
         if: steps.upstream-cache.outputs.cache-hit != 'true'
