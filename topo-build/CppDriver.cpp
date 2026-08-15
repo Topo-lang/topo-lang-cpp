@@ -70,6 +70,9 @@ DriverResult compileCpp(const BuildConfig& cfg, const fs::path& tempDir) {
     if (cfg.adaptiveCfg.isEnabled()) {
         baseCompileArgs.push_back("-DTOPO_HAS_ADAPTIVE");
     }
+    // [build.cpp].flags — free-form user flags appended LAST so they can
+    // override the built-ins above (clang last-flag-wins).
+    baseCompileArgs.insert(baseCompileArgs.end(), cfg.cppFlags.begin(), cfg.cppFlags.end());
 
     std::vector<std::future<int>> compileFutures;
 
@@ -171,6 +174,9 @@ DriverResult linkCpp(const BuildConfig& cfg,
         std::vector<std::string> args = {"-std=" + cfg.standard};
         args.insert(args.end(), sysrootArgs.begin(), sysrootArgs.end());
         args.insert(args.end(), optArgs.begin(), optArgs.end());
+        // [build.cpp].flags apply at link too (e.g. -fsanitize needs both
+        // an instrumented compile AND the runtime linked in).
+        args.insert(args.end(), cfg.cppFlags.begin(), cfg.cppFlags.end());
         args.push_back(optIRPath);
         args.push_back("-o");
         args.push_back(cfg.outputPath);
@@ -198,6 +204,7 @@ DriverResult linkCpp(const BuildConfig& cfg,
         std::vector<std::string> args = {"-shared", "-std=" + cfg.standard};
         args.insert(args.end(), sysrootArgs.begin(), sysrootArgs.end());
         args.insert(args.end(), optArgs.begin(), optArgs.end());
+        args.insert(args.end(), cfg.cppFlags.begin(), cfg.cppFlags.end());
         if constexpr (!plat::IsWindows) {
             args.push_back("-fPIC");
         }
@@ -217,6 +224,7 @@ DriverResult linkCpp(const BuildConfig& cfg,
         std::vector<std::string> compileArgs = {"-c", "-std=" + cfg.standard};
         compileArgs.insert(compileArgs.end(), sysrootArgs.begin(), sysrootArgs.end());
         compileArgs.insert(compileArgs.end(), optArgs.begin(), optArgs.end());
+        compileArgs.insert(compileArgs.end(), cfg.cppFlags.begin(), cfg.cppFlags.end());
         compileArgs.push_back(optIRPath);
         compileArgs.push_back("-o");
         compileArgs.push_back(objPath);

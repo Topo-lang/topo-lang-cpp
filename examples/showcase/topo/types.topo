@@ -58,7 +58,7 @@ namespace pipeline {
       public:
         explicit Schema(int id);
         int field_type(int index) const;
-        bool accepts(const Record& record) const;
+        bool accepts(const Record& rec) const;
         int id() const;
         static Schema default_schema();
       private:
@@ -70,7 +70,7 @@ namespace pipeline {
       public:
         explicit Batch(int capacity);
         ~Batch();
-        void add(const Record& record);
+        void add(const Record& rec);
         const Record& get(int index) const;
         int size() const;
         bool is_full() const;
@@ -184,12 +184,12 @@ namespace pipeline {
   // -- Constraint implementation functions --------------------------
 
   protected:
-    bool record_validate(Record& record);
-    int record_error_count(const Record& record);
-    size_t record_serialized_size(const Record& record);
-    void record_serialize(const Record& record, int dest);
-    bool record_deserialize(Record& record, int src);
-    int64_t record_index_key(const Record& record);
+    bool record_validate(Record& rec);
+    int record_error_count(const Record& rec);
+    size_t record_serialized_size(const Record& rec);
+    void record_serialize(const Record& rec, int dest);
+    bool record_deserialize(Record& rec, int src);
+    int64_t record_index_key(const Record& rec);
     int record_compare_key(const Record& a, const Record& b);
 
   private:

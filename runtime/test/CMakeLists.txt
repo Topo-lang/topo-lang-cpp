@@ -45,10 +45,10 @@ add_dependencies(topo-app-static-slice-tests
 
 # T4 (the zero-decl check round-trip) drives `topo-check` against C++
 # sources, which works only when the cpp language plugin is linked into
-# the CLI — i.e. when TopoCppPlugin exists in this configure (ENABLE_LLVM
-# scope). In plugin-less configures the binary SKIPS T4 loudly instead of
-# failing on "no language plugin registered"; the full assertion runs in
-# every configure that builds the plugin (and on the verify-llvm CI lane).
+# the CLI. TopoCppPlugin is unconditional (zero-LLVM aggregator), so every
+# configure of this package — including the default scope — runs T4; the
+# defensive gate stays so a plugin-less embedding SKIPS T4 loudly instead
+# of failing on "no language plugin registered".
 if(TARGET TopoCppPlugin)
     set(_slice_t4_env "TOPO_SLICE_HAS_CPP_CHECK=1")
 else()
