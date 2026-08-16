@@ -12,10 +12,9 @@ concurrency:
 
 env:
   # Pin upstream refs. Bump together with a compatible upstream tag.
-  # topo-core pinned to dev: CppDriver/NinjaGen consume the new
-  # BuildConfig::cppFlags field ([build.cpp].flags passthrough), which is
-  # on topo-core dev — flip back to main at promotion.
-  TOPO_CORE_REF: dev
+  # topo-core unpinned at promotion (2026-08-16): the BuildConfig::cppFlags
+  # field ([build.cpp].flags passthrough) is on main now.
+  TOPO_CORE_REF: main
   TOPO_LANG_REF: main
   TOPO_CLI_REF: main
 
