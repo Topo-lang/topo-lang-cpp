@@ -1,5 +1,6 @@
 #include "CppEmitter.h"
 #include "topo/Stdlib/Types.h"
+#include "topo/Transpile/EmissionValidation.h"
 #include <map>
 #include <sstream>
 
@@ -408,6 +409,7 @@ void scanTypeForStdlibIncludes(const TypeNode& t, StdlibIncludeFlags& flags) {
 
 EmitResult CppEmitter::emit(const TranspileModule& module) {
     EmitResult result;
+    result.errors = validateEmission(module);
 
     // Walk the module to collect stdlib-related headers
     // that must be `#include`d in the generated C++ before any namespace
@@ -713,7 +715,16 @@ std::string CppEmitter::emitExpr(const Expr& expr) {
     }
     case Expr::Kind::Call: {
         const auto& e = static_cast<const CallExpr&>(expr);
-        std::string result = e.callee + "(";
+        std::string receiver;
+        if (e.receiver) {
+            receiver = emitExpr(*e.receiver);
+            const auto kind = e.receiver->kind();
+            if (kind != Expr::Kind::VarRef && kind != Expr::Kind::Call &&
+                kind != Expr::Kind::MemberAccess && kind != Expr::Kind::Index &&
+                kind != Expr::Kind::Construct) receiver = "(" + receiver + ")";
+            receiver += ".";
+        }
+        std::string result = receiver + e.callee + "(";
         for (size_t i = 0; i < e.args.size(); ++i) {
             if (i > 0) result += ", ";
             result += emitExpr(*e.args[i]);
@@ -749,6 +760,9 @@ std::string CppEmitter::emitExpr(const Expr& expr) {
         result += "}";
         return result;
     }
+    case Expr::Kind::MethodReference:
+        // validateEmission records a hard error before any placeholder is returned.
+        return "nullptr";
     case Expr::Kind::Lambda: {
         const auto& e = static_cast<const LambdaExpr&>(expr);
         std::string result = "[";
