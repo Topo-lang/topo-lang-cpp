@@ -67,14 +67,24 @@ CheckResult CppSafetyAnalyzer::analyze(const SymbolTable& symbols,
         return result;
     }
 
+    int preprocessorFailures = 0;
     // F4b: Supplementary macro expansion scan via clang preprocessor.
     // Catches dangerous calls hidden inside macros from system/third-party headers.
     {
         CppPreprocessorScanner ppScanner;
         ppScanner.setBuildDir(buildDir_);
         for (const auto& file : sourceFiles) {
-            auto ppSites = ppScanner.scanExpanded(file);
-            callSites.insert(callSites.end(), ppSites.begin(), ppSites.end());
+            auto scan = ppScanner.scanDetailed(file);
+            callSites.insert(callSites.end(), scan.sites.begin(), scan.sites.end());
+            if (!scan.complete) ++preprocessorFailures;
+            for (const auto& error : scan.errors) {
+                CheckDiagnostic d;
+                d.severity = Severity::Error;
+                d.check = "containment-preprocessor";
+                d.message = "macro coverage unavailable: " + error;
+                d.file = file;
+                result.addDiagnostic(std::move(d));
+            }
         }
     }
 
@@ -116,7 +126,8 @@ CheckResult CppSafetyAnalyzer::analyze(const SymbolTable& symbols,
         d.message = "L2 deep analysis completed (" +
                     std::to_string(static_cast<int>(sourceFiles.size()) - filesWithEmptyTokens) +
                     "/" + std::to_string(sourceFiles.size()) + " file(s), " +
-                    std::to_string(callSites.size()) + " call site(s))";
+                    std::to_string(callSites.size()) + " call site(s), " +
+                    std::to_string(preprocessorFailures) + " preprocessing failure(s))";
         result.addDiagnostic(std::move(d));
     }
 

@@ -2,6 +2,7 @@ if(TOPO_ENABLE_LLVM)
     add_library(TopoCppDriver STATIC
         CppDriver.cpp
         NinjaGen.cpp
+        IsolatedCppBuild.cpp
     )
     add_library(topo::lang-cpp::TopoCppDriver ALIAS TopoCppDriver)
 
@@ -23,7 +24,7 @@ if(TOPO_ENABLE_LLVM)
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
-    install(FILES CppDriver.h NinjaGen.h
+    install(FILES CppDriver.h NinjaGen.h IsolatedCppBuild.h
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/topo/lang-cpp/build)
 endif()
 

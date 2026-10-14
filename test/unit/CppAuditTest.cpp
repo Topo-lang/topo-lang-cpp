@@ -1,0 +1,743 @@
+#include "analysis/CppCompileModel.h"
+#include "analysis/CppAnalysisProvider.h"
+#include "analysis/CppCMakeModel.h"
+#include "topo/Check/Audit.h"
+#include "analysis/catalog/CppPreprocessorScanner.h"
+#ifdef TOPO_CPP_AUDIT_LIBCLANG
+#include "CppAuditExtractor.h"
+#include "CppAuditDriver.h"
+#include <clang-c/Index.h>
+#endif
+#include "topo/Platform/TempFile.h"
+#include "topo/Platform/ToolResolution.h"
+#include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
+#include <filesystem>
+#include <cstdlib>
+#include <optional>
+#include <fstream>
+using namespace topo::check;
+using json = nlohmann::json;
+namespace fs = std::filesystem;
+namespace {
+struct Fixture {
+    topo::platform::TempFile anchor{"cpp-audit-test", ".tmp"};
+    fs::path root{anchor.path().string() + ".dir"};
+    Fixture() { fs::create_directories(root); root = fs::canonical(root); }
+    ~Fixture() { std::error_code ec; fs::remove_all(root, ec); }
+    std::string write(const std::string& path, const std::string& data) {
+        fs::create_directories((root / path).parent_path());
+        std::ofstream(root / path) << data; return (root / path).string();
+    }
+    std::string database(const std::vector<std::string>& args, const std::string& file = "main.cpp") {
+        auto explicitArgs = args;
+        if (!explicitArgs.empty() && explicitArgs.front() == "clang++") explicitArgs.insert(explicitArgs.begin() + 1, "--no-default-config");
+        return write("compile_commands.json", json::array({{{"directory", root.string()}, {"file", file}, {"arguments", explicitArgs}}}).dump());
+    }
+};
+}
+TEST(CppCompileModel, PreservesOrderDirectoryAndMultipleVariants) {
+    Fixture f; f.write("main.cpp", "void run() {}\n");
+    json entries = json::array();
+    for (const auto* define : {"-DA=1", "-DA=2"})
+        entries.push_back({{"directory", f.root.string()}, {"file", "main.cpp"}, {"arguments", {"clang++", "-Ione", "-I", "two", define, "-UOLD", "-std=c++20", "-c", "main.cpp", "-o", "main.o", "--no-default-config"}}});
+    auto model = loadCppCompileModel(f.write("compile_commands.json", entries.dump()), f.root.string());
+    ASSERT_TRUE(model.complete()); ASSERT_EQ(model.units.size(), 2u);
+    EXPECT_NE(model.units[0].variant, model.units[1].variant);
+    EXPECT_EQ(model.units[0].arguments[0], "-I" + (f.root / "one").string());
+    EXPECT_EQ(model.units[0].arguments[1], "-I");
+    EXPECT_EQ(model.units[0].arguments[2], (f.root / "two").string());
+    EXPECT_NE(model.units[0].arguments, model.units[1].arguments);
+}
+TEST(CppCompileModel, CommandFormAndWindowsQuotingAreShellFree) {
+    std::string error;
+    auto posix = splitCppCommand("clang++ -I'path with spaces' -DVALUE=\\\"test\\\" main.cpp", false, error);
+    ASSERT_TRUE(error.empty()); ASSERT_EQ(posix.size(), 4u); EXPECT_EQ(posix[1], "-Ipath with spaces");
+    auto windows = splitCppCommand("\"C:\\Program Files\\LLVM\\clang++.exe\" -I\"C:\\path with spaces\" file.cpp", true, error);
+    ASSERT_TRUE(error.empty()); ASSERT_EQ(windows.size(), 3u); EXPECT_EQ(windows[0], "C:\\Program Files\\LLVM\\clang++.exe");
+    splitCppCommand("clang++ $(touch sentinel) main.cpp", false, error); EXPECT_FALSE(error.empty());
+}
+TEST(CppCompileModel, ResponseFilesExpandButCyclesAndPluginsFail) {
+    Fixture f; f.write("main.cpp", "void run() {}\n");
+    f.write("second.rsp", "-DFLAG=1"); f.write("first.rsp", "@second.rsp -I include");
+    auto path = f.database({"clang++", "@first.rsp", "-c", "main.cpp"});
+    auto model = loadCppCompileModel(path); ASSERT_TRUE(model.complete()); EXPECT_GE(model.units[0].inputs.size(), 2u);
+    f.write("second.rsp", "@first.rsp"); EXPECT_FALSE(loadCppCompileModel(path).complete());
+    f.write("second.rsp", "-Xclang -load -Xclang /tmp/evil.dylib"); EXPECT_FALSE(loadCppCompileModel(path).complete());
+}
+TEST(CppCompileModel, PreservesSymlinkParentTraversalForModelSourceAndResponse) {
+    Fixture f;
+    f.write("left/main.cpp", "void wrong() {}\n");
+    f.write("right/main.cpp", "void correct() {}\n");
+    f.write("left/options.rsp", "-DSELECTED=11");
+    f.write("right/options.rsp", "-DSELECTED=22");
+    fs::create_directories(f.root / "right/nested");
+    fs::create_directory_symlink("../right/nested", f.root / "left/link");
+    const auto spelling = (f.root / "left/link/..").string();
+    auto path = f.database({"clang++", "@left/link/../options.rsp", "-Ileft/link/..", "-c", "left/link/../main.cpp"}, "left/link/../main.cpp");
+    auto model = loadCppCompileModel(path, f.root.string());
+    ASSERT_TRUE(model.complete());
+    EXPECT_EQ(model.units[0].file, spelling + "/main.cpp");
+    EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), "-DSELECTED=22"), model.units[0].arguments.end());
+    EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), "-I" + spelling), model.units[0].arguments.end());
+    const auto rightModel = f.write("right/compile_commands.json", json::array({{{"directory", f.root.string()}, {"file", "right/main.cpp"}, {"arguments", {"clang++", "--no-default-config", "-c", "right/main.cpp"}}}}).dump());
+    f.write("left/compile_commands.json", "not the selected model");
+    auto selected = loadCppCompileModel(spelling + "/compile_commands.json", f.root.string());
+    ASSERT_TRUE(selected.complete());
+    EXPECT_EQ(cppCanonicalPath(selected.path), rightModel);
+}
+TEST(CppCompileModel, AuthorizesPhysicalTargetBeforeSymlinkParentTraversalReads) {
+    Fixture f, outside;
+    f.write("main.cpp", "void run() {}\n");
+    f.write("inside/options.rsp", "-DWRONG=1");
+    outside.write("options.rsp", "-DOUTSIDE=1");
+    fs::create_directories(outside.root / "nested");
+    fs::create_directory_symlink(outside.root / "nested", f.root / "inside/link");
+    const auto compiler = topo::platform::findOnPath("clang++");
+    ASSERT_FALSE(compiler.empty());
+    CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
+    for (const auto& option : {std::string("-Iinside/link/.."), std::string("@inside/link/../options.rsp")}) {
+        auto path = f.database({compiler, "--no-default-config", option, "-c", "main.cpp"});
+        auto denied = loadCppCompileModel(path, f.root.string(), &policy);
+        EXPECT_FALSE(denied.complete()) << option;
+        ASSERT_EQ(denied.units.size(), 1u);
+        EXPECT_FALSE(denied.units[0].inputDigests.count((f.root / "inside/link/../options.rsp").string()));
+        EXPECT_EQ(std::find(denied.units[0].arguments.begin(), denied.units[0].arguments.end(), "-DOUTSIDE=1"),
+                  denied.units[0].arguments.end());
+        policy.inputRoots.push_back(outside.root.string());
+        EXPECT_TRUE(loadCppCompileModel(path, f.root.string(), &policy).complete()) << option;
+        policy.inputRoots.pop_back();
+    }
+}
+TEST(CppCompileModel, UnknownCompilerAndFlagsDoNotLoseSemanticsSilently) {
+    Fixture f; f.write("main.cpp", "void run() {}\n");
+    EXPECT_FALSE(loadCppCompileModel(f.database({"g++", "-c", "main.cpp"})).complete());
+    EXPECT_FALSE(loadCppCompileModel(f.database({"clang++", "-fplugin=evil.so", "main.cpp"})).complete());
+    EXPECT_FALSE(loadCppCompileModel(f.database({"clang++", "-include"})).complete());
+}
+TEST(CppCompileModel, BackendCodegenFlagsAreAcceptedWithoutAllowingFrontendPlugins) {
+    Fixture f; f.write("main.cpp", "void run() {}\n");
+    auto model = loadCppCompileModel(f.database({"clang++", "-emit-llvm", "-Xclang", "-disable-llvm-passes", "-fno-autolink", "-c", "main.cpp"}));
+    ASSERT_TRUE(model.complete());
+    EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), "-fno-autolink"), model.units[0].arguments.end());
+    EXPECT_FALSE(loadCppCompileModel(f.database({"clang++", "-Xclang", "-load", "-Xclang", "plugin.dylib", "main.cpp"})).complete());
+    EXPECT_FALSE(loadCppCompileModel(f.database({"clang++", "-Xclang", "-disable-llvm-passes=1", "main.cpp"})).complete());
+    EXPECT_FALSE(loadCppCompileModel(f.database({"clang++", "-Xclang", "main.cpp"})).complete());
+}
+TEST(CppCompileModel, MissingCompilerAndImplicitConfigurationRemainUnverified) {
+    Fixture f; f.write("main.cpp", "void run() {}\n");
+    auto compiler = (f.root / "toolchain/bin/clang++").string();
+    EXPECT_FALSE(loadCppCompileModel(f.database({compiler, "-c", "main.cpp"})).complete());
+    f.write("toolchain/bin/clang++", "not executed");
+    f.write("toolchain/etc/clang/unknown.cfg", "-DFLAG=1");
+    EXPECT_FALSE(loadCppCompileModel(f.database({compiler, "-c", "main.cpp"})).complete());
+    EXPECT_TRUE(loadCppCompileModel(f.database({compiler, "--no-default-config", "-c", "main.cpp"})).complete());
+}
+
+TEST(CppCompileModel, AuditReadPolicyRejectsModelSelectedCompilerAndExternalInputs) {
+    Fixture f, external;
+    f.write("main.cpp", "#include <value.h>\nvoid run() {}\n");
+    auto compiler = topo::platform::findOnPath("clang++");
+    ASSERT_FALSE(compiler.empty());
+    CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
+    auto path = f.database({compiler, "--no-default-config", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iheaders", "-c", "main.cpp"});
+    external.write("value.h", "#pragma once\n");
+    fs::create_directory_symlink(external.root, f.root / "headers");
+    EXPECT_FALSE(loadCppCompileModel(path, f.root.string(), &policy).complete());
+    policy.inputRoots.push_back(external.root.string());
+    auto model = loadCppCompileModel(path, f.root.string(), &policy);
+    ASSERT_TRUE(model.complete()); EXPECT_TRUE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+    const auto fake = external.write("clang++", "#!/bin/sh\nexit 0\n");
+    path = f.database({fake, "--no-default-config", "-c", "main.cpp"});
+    model = loadCppCompileModel(path, f.root.string(), &policy);
+    ASSERT_FALSE(model.complete()); EXPECT_FALSE(model.units[0].inputDigests.count(fake));
+    const auto response = external.write("outside.rsp", "-c main.cpp");
+    path = f.database({compiler, "--no-default-config", "@" + response});
+    policy.inputRoots = {f.root.string()};
+    model = loadCppCompileModel(path, f.root.string(), &policy);
+    ASSERT_FALSE(model.complete()); EXPECT_FALSE(model.units[0].inputDigests.count(response));
+}
+
+TEST(CppCompileModel, FixedAuditEnvironmentIgnoresAmbientHomeConfiguration) {
+    Fixture f, ambient;
+    f.write("main.cpp", "void run() {}\n");
+    auto compiler = f.write("toolchain/bin/clang++", "model identity only; never executed");
+    ambient.write(".config/clang/default.cfg", "-DAMBIENT=1\n");
+    struct HomeRestore {
+        std::optional<std::string> old;
+        HomeRestore(const std::string& value) {
+            if (const auto* current = std::getenv("HOME")) old = current;
+            set(value.c_str());
+        }
+        static void set(const char* value) {
+#ifdef _WIN32
+            _putenv_s("HOME", value ? value : "");
+#else
+            if (value) setenv("HOME", value, 1); else unsetenv("HOME");
+#endif
+        }
+        ~HomeRestore() { set(old ? old->c_str() : nullptr); }
+    } home(ambient.root.string());
+    const auto path = f.database({compiler, "-c", "main.cpp"});
+    EXPECT_FALSE(loadCppCompileModel(path, f.root.string()).complete());
+    CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
+    EXPECT_TRUE(loadCppCompileModel(path, f.root.string(), &policy).complete());
+}
+
+TEST(CppAudit, UnconfiguredAuditDoesNotFallBackToFilesystemDiscovery) {
+    Fixture project, external;
+    project.write("main.cpp", "void run() {}\n");
+    external.write("private.cpp", "void private_data() {}\n");
+    auto provider = createCppAnalysisProvider();
+    std::string diagnostic;
+    provider->configureAuditExecution({}, diagnostic);
+    provider->configureAnalysis(project.root.string(), "");
+    EXPECT_TRUE(provider->collectSourceFiles(project.root.string(), {external.root.string()}).empty());
+    EXPECT_TRUE(provider->auditFacts({}).modelPath.empty());
+}
+
+TEST(CppAudit, FailedAuditModelDoesNotPublishInputsOrSelectInvalidRows) {
+    Fixture project, external;
+    const auto source = external.write("private.cpp", "void private_data() {}\n");
+    const auto model = external.database({"g++", "-c", source}, source);
+    auto provider = createCppAnalysisProvider();
+    std::string diagnostic;
+    provider->configureAuditExecution({}, diagnostic);
+    provider->configureAnalysis(project.root.string(), model);
+    EXPECT_TRUE(provider->auditFacts({}).modelPath.empty());
+    EXPECT_TRUE(provider->collectSourceFiles(project.root.string(), {external.root.string()}).empty());
+    const auto local = project.write("compile_commands.json", json::array({{
+        {"directory", project.root.string()}, {"file", source}, {"arguments", {"g++", "-c", source}}}}).dump());
+    provider->configureAnalysis(project.root.string(), local);
+    EXPECT_TRUE(provider->auditFacts({}).modelPath.empty());
+    EXPECT_TRUE(provider->collectSourceFiles(project.root.string(), {}).empty());
+}
+
+TEST(CppAuditHeaderClosure, AuthorizedSearchRootsDoNotAuthorizeEscapingHeaderSymlinks) {
+    Fixture f, external;
+    f.write("main.cpp", "#include \"value.h\"\nvoid run() {}\n");
+    const auto file = external.write("value.h", "#pragma once\n");
+    fs::create_symlink(file, f.root / "value.h");
+    auto compiler = topo::platform::findOnPath("clang++");
+    ASSERT_FALSE(compiler.empty());
+    CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
+    auto path = f.database({compiler, "--no-default-config", "-std=c++17", "-nostdinc", "-nostdinc++", "-c", "main.cpp"});
+    const auto model = loadCppCompileModel(path, f.root.string(), &policy);
+    ASSERT_TRUE(model.complete());
+    EXPECT_FALSE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+    policy.inputRoots.push_back(external.root.string());
+    EXPECT_TRUE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+}
+
+TEST(CppAuditHeaderClosure, TracksTransitiveAndPreviouslyMissingHigherPriorityHeaders) {
+    Fixture f;
+    f.write("main.cpp", "#include <value.h>\nint run() { return VALUE; }\n");
+    f.write("later/value.h", "#pragma once\n#include \"detail.h\"\n");
+    f.write("later/detail.h", "#define VALUE 7\n");
+    auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iearly", "-Ilater", "-c", "main.cpp"});
+    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
+    EXPECT_EQ(first["searchCandidates"][(f.root / "early/value.h").string()]["kind"], "missing");
+    EXPECT_TRUE(first["inputs"].contains((f.root / "later/detail.h").string()));
+    f.write("later/detail.h", "#define VALUE 8\n"); EXPECT_NE(identity(), first);
+    f.write("later/detail.h", "#define VALUE 7\n"); EXPECT_EQ(identity(), first);
+    f.write("early/value.h", "#define VALUE 9\n"); EXPECT_NE(identity(), first);
+    fs::remove(f.root / "early/value.h"); fs::remove(f.root / "early"); EXPECT_EQ(identity(), first);
+    f.write("report.json", "unrelated output\n"); EXPECT_EQ(identity(), first);
+}
+
+TEST(CppAuditHeaderClosure, IncludesResponsesForcedHeadersAndQuoteOnlyRoots) {
+    Fixture f;
+    f.write("main.cpp", "#include \"quote.h\"\nint run() { return VALUE; }\n");
+    f.write("quote/quote.h", "#pragma once\n");
+    f.write("forced.h", "#include \"macro.h\"\n");
+    f.write("macro.h", "#define VALUE 3\n");
+    f.write("macros.h", "#define EXTRA 1\n");
+    f.write("inner.rsp", "-std=c++17 -nostdinc -nostdinc++ -iquote quote -include forced.h -imacros macros.h");
+    f.write("outer.rsp", "@inner.rsp -c main.cpp");
+    auto path = f.database({"clang++", "@outer.rsp"});
+    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
+    for (const auto* name : {"outer.rsp", "inner.rsp", "forced.h", "macro.h", "macros.h", "quote/quote.h"})
+        EXPECT_TRUE(first["inputs"].contains((f.root / name).string())) << name;
+    f.write("macros.h", "#define EXTRA 2\n"); EXPECT_NE(identity(), first);
+    f.write("macros.h", "#define EXTRA 1\n"); EXPECT_EQ(identity(), first);
+    f.write("inner.rsp", "-std=c++17 -nostdinc -nostdinc++ -iquote quote -include forced.h -imacros macros.h -DOTHER=1");
+    EXPECT_NE(identity(), first);
+}
+
+TEST(CppAuditHeaderClosure, TracksIncludeNextAndLiteralNegativeProbes) {
+    Fixture f;
+    f.write("main.cpp", "#include <value.h>\n#if __has_include(<optional.h>)\n#include <optional.h>\n#endif\n");
+    f.write("first/value.h", "#if __has_include_next(<value.h>)\n#include_next <value.h>\n#endif\n");
+    f.write("second/value.h", "#define VALUE 1\n");
+    auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Ifirst", "-Isecond", "-c", "main.cpp"});
+    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
+    EXPECT_TRUE(first["inputs"].contains((f.root / "second/value.h").string()));
+    f.write("first/optional.h", "#define OPTIONAL 1\n"); EXPECT_NE(identity(), first);
+}
+
+TEST(CppAuditHeaderClosure, TracksSymlinkRetargetingAndMissingIntermediateParents) {
+    Fixture f;
+    f.write("main.cpp", "#include <value.h>\n#if __has_include(<nested/new.h>)\n#endif\n#if __has_include(<dangling/new.h>)\n#endif\n");
+    f.write("a/value.h", "#define VALUE 1\n"); f.write("b/value.h", "#define VALUE 1\n");
+    fs::create_directory_symlink(f.root / "a", f.root / "selected");
+    auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iselected", "-c", "main.cpp"});
+    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
+    fs::remove(f.root / "selected"); fs::create_directory_symlink(f.root / "b", f.root / "selected");
+    EXPECT_NE(identity(), first);
+    auto second = identity();
+    fs::create_directories(f.root / "empty"); fs::create_directory_symlink(f.root / "empty", f.root / "b/nested");
+    EXPECT_NE(identity(), second);
+    auto third = identity(); f.write("empty/new.h", "#pragma once\n"); EXPECT_NE(identity(), third);
+    fs::create_directory_symlink(f.root / "absent-a", f.root / "b/dangling");
+    auto dangling = identity(); ASSERT_TRUE(dangling["supported"].get<bool>()) << dangling.dump();
+    fs::remove(f.root / "b/dangling"); fs::create_directory_symlink(f.root / "absent-b", f.root / "b/dangling");
+    EXPECT_NE(identity(), dangling);
+}
+TEST(CppAuditHeaderClosure, PreservesSymlinkParentTraversalInLookupIdentity) {
+    Fixture f;
+    f.write("main.cpp", "#include <value.h>\nvoid run() {}\n");
+    f.write("left/value.h", "#define SELECTED 11\n");
+    auto actual = f.write("right/value.h", "#define SELECTED 22\n");
+    fs::create_directories(f.root / "right/nested");
+    fs::create_directory_symlink("../right/nested", f.root / "left/link");
+    auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Ileft/link/..", "-c", "main.cpp"});
+    auto model = loadCppCompileModel(path, f.root.string());
+    auto before = cppAuditInputIdentity(model);
+    ASSERT_TRUE(before.value("supported", false)) << before.dump();
+    bool found = false;
+    for (const auto& [name, input] : before.at("inputs").items())
+        if (input.value("resolvedPath", "") == actual) found = true;
+    EXPECT_TRUE(found);
+    f.write("right/value.h", "#define SELECTED 33\n");
+    EXPECT_NE(before, cppAuditInputIdentity(model));
+}
+
+TEST(CppAuditHeaderClosure, BypassesDynamicAndUnclosedPreprocessorInputs) {
+    Fixture f;
+    auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iinclude", "-c", "main.cpp"});
+    for (const auto& source : std::vector<std::string>{
+             "#define JOIN(a,b) a ## b\nconst char* t = JOIN(__TI, ME__);\n",
+             "const char* t = __TI\\\nME__;\n", "#include HEADER\n", "#include \"../escape.h\"\n",
+             "#if __has_include(HEADER)\n#endif\n", "#define FOUND(x) __has_include(<x>)\n",
+             "#pragma clang module load Whatever\n", "%:include \"a.h\"\n", std::string("?") + "?=include \"a.h\"\n",
+             "#include <a/*x*/b.h>\n", std::string("\xef\xbb\xbf") + "#include <value.h>\n",
+             "#if __has_embed(\"data\")\n#endif\n", "#__include_macros \"hidden.h\"\n", "#module Whatever\n"}) {
+        f.write("main.cpp", source);
+        EXPECT_FALSE(cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()))["supported"].get<bool>()) << source;
+    }
+    f.write("main.cpp", "#include <bad.h>\n"); f.write("include/bad.h", "const char* t = __DATE__;\n");
+    EXPECT_FALSE(cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()))["supported"].get<bool>());
+    f.write("include/bad.h", "#pragma once\n");
+    EXPECT_TRUE(cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()))["supported"].get<bool>());
+    fs::create_hard_link(f.root / "include/bad.h", f.root / "same-header.h");
+    EXPECT_FALSE(cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()))["supported"].get<bool>());
+}
+TEST(CppAuditMacroHeaderClosure, CapturesAllBranchAliasesAndUseSiteSearchCandidates) {
+    Fixture f; fs::create_directories(f.root / "early");
+    f.write("main.cpp", "#include \"defs/headers.h\"\n#include HEADER\n#if __has_include(OPTIONAL)\n#include OPTIONAL\n#endif\n");
+    f.write("defs/headers.h", "#define HEADER ALIAS\n#if CHOICE\n#define ALIAS LEFT\n#else\n#define ALIAS RIGHT\n#endif\n#define LEFT \"value.h\"\n#define RIGHT \"other.h\"\n#define OPTIONAL \"optional.h\"\n");
+    f.write("late/value.h", "#define TRANSITIVE \"detail.h\"\n#include TRANSITIVE\n");
+    f.write("late/detail.h", "#define VALUE 1\n"); f.write("late/other.h", "#define VALUE 2\n");
+    auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iearly", "-Ilate", "-c", "main.cpp"});
+    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    const auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
+    for (const auto* name : {"defs/headers.h", "late/value.h", "late/detail.h", "late/other.h"})
+        EXPECT_TRUE(first["inputs"].contains((f.root / name).string())) << name;
+    for (const auto* name : {"value.h", "early/value.h", "early/optional.h", "late/optional.h"})
+        EXPECT_EQ(first["searchCandidates"][(f.root / name).string()]["kind"], "missing") << name;
+    EXPECT_FALSE(first["searchCandidates"].contains((f.root / "defs/value.h").string()));
+    f.write("early/optional.h", "#pragma once\n"); EXPECT_NE(identity(), first);
+    fs::remove(f.root / "early/optional.h"); EXPECT_EQ(identity(), first);
+    f.write("early/value.h", "#define VALUE 3\n"); EXPECT_NE(identity(), first);
+    fs::remove(f.root / "early/value.h"); EXPECT_EQ(identity(), first);
+    f.write("late/detail.h", "#define VALUE 4\n"); EXPECT_NE(identity(), first);
+}
+TEST(CppAuditMacroHeaderClosure, ResolvesForcedHeadersAfterOrderedCommandLineDefinitions) {
+    Fixture f;
+    f.write("main.cpp", "#include HEADER\n");
+    f.write("macros.h", "#define SELECTED \"selected.h\"\n");
+    f.write("forced.h", "#define HEADER SELECTED\n");
+    f.write("selected.h", "#pragma once\n"); f.write("unused.h", "#pragma once\n");
+    auto flags = std::vector<std::string>{"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-DSELECTED=\"unused.h\"", "-U", "SELECTED", "-include", "forced.h", "-imacros", "macros.h", "-c", "main.cpp"};
+    auto path = f.database(flags);
+    auto first = cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()));
+    ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
+    EXPECT_TRUE(first["inputs"].contains((f.root / "selected.h").string()));
+    EXPECT_FALSE(first["inputs"].contains((f.root / "unused.h").string()));
+    f.write("main.cpp", "#include COMMAND\n");
+    flags.insert(flags.end(), {"-D", "COMMAND=\"unused.h\"", "-UCOMMAND", "-DCOMMAND=\"selected.h\""});
+    auto final = cppAuditInputIdentity(loadCppCompileModel(f.database(flags), f.root.string()));
+    ASSERT_TRUE(final["supported"].get<bool>()) << final.dump();
+    EXPECT_TRUE(final["inputs"].contains((f.root / "selected.h").string()));
+    EXPECT_FALSE(final["inputs"].contains((f.root / "unused.h").string()));
+    flags.push_back("-UCOMMAND");
+    EXPECT_FALSE(cppAuditInputIdentity(loadCppCompileModel(f.database(flags), f.root.string()))["supported"].get<bool>());
+}
+TEST(CppAuditMacroHeaderClosure, KeepsUnclosedMacroFormsUncached) {
+    Fixture f; f.write("value.h", "#pragma once\n");
+    const auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-c", "main.cpp"});
+    for (const auto& source : std::vector<std::string>{
+        "#include UNKNOWN\n", "#define A B\n#define B A\n#include A\n",
+        "#define H(x) x\n#include H(\"value.h\")\n",
+        "#define H <value.h>\n#include H\n",
+        "#if PICK\n#define H \"value.h\"\n#else\n#define H <value.h>\n#endif\n#include H\n",
+        "#define H \"value.h\"\n#undef H\n#define H \"value.h\"\n#include H\n",
+        "#define H \"value\" \".h\"\n#include H\n",
+        "#define H __FILE__\n#include H\n",
+        "#undef __has_include\n#if 0\n#endif\n",
+        "void run(){\n#undef __has_include\n(\"value.h\");\n}\n",
+        "void run(){\n#undef __has_include_next\n(\"value.h\");\n}\n",
+        "#define __has_include(x) 1\n#if __has_include(\"value.h\")\n#endif\n",
+        "#define P __has_include\n#if P(\"value.h\")\n#endif\n",
+        "#define H \"value.h\"\n#define JOIN(a,b) a ## b\n#include H\n"}) {
+        f.write("main.cpp", source);
+        EXPECT_FALSE(cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()))["supported"].get<bool>()) << source;
+    }
+    f.write("main.cpp", "#define HEADER \"value.h\"\n#define SUM(a,b) a+b\n#include HEADER\n");
+    EXPECT_TRUE(cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()))["supported"].get<bool>());
+    for (const auto& flag : {"-D__has_include(x)=0", "-U__has_include", "-D__has_include_next(x)=0", "-U__has_include_next"}) {
+        auto command = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", flag, "-c", "main.cpp"});
+        EXPECT_FALSE(cppAuditInputIdentity(loadCppCompileModel(command, f.root.string()))["supported"].get<bool>()) << flag;
+    }
+}
+TEST(CppAuditMacroHeaderClosure, EnforcesAuthorizedRootsForExpandedCandidates) {
+    Fixture f, external;
+    f.write("main.cpp", "#define HEADER \"selected.h\"\n#include HEADER\n");
+    auto target = external.write("private.h", "#pragma once\n");
+    fs::create_symlink(target, f.root / "selected.h");
+    const auto compiler = topo::platform::findOnPath("clang++"); ASSERT_FALSE(compiler.empty());
+    CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
+    auto path = f.database({compiler, "--no-default-config", "-std=c++17", "-nostdinc", "-nostdinc++", "-c", "main.cpp"});
+    const auto model = loadCppCompileModel(path, f.root.string(), &policy); ASSERT_TRUE(model.complete());
+    auto denied = cppAuditInputIdentity(model, &policy);
+    EXPECT_FALSE(denied["supported"].get<bool>());
+    EXPECT_NE(denied.value("reason", "").find("outside"), std::string::npos);
+    policy.inputRoots.push_back(external.root.string());
+    EXPECT_TRUE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+}
+TEST(CppAuditMacroHeaderClosure, BoundsMacroNamesAlternativesAliasDepthAndClosureRounds) {
+    Fixture f;
+    const auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-c", "main.cpp"});
+    auto exceeds = [&](const std::string& source, const std::string& reason) {
+        f.write("main.cpp", source);
+        auto identity = cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()));
+        EXPECT_FALSE(identity["supported"].get<bool>()) << identity.dump();
+        EXPECT_NE(identity.value("reason", "").find(reason), std::string::npos) << identity.dump();
+    };
+    std::string names;
+    for (int i = 0; i < 4097; ++i) names += "#define H" + std::to_string(i) + " 1\n";
+    exceeds(names, "definition limit");
+    std::string alternatives;
+    for (int i = 0; i < 65; ++i) alternatives += "#define H \"" + std::to_string(i) + ".h\"\n";
+    exceeds(alternatives + "#include H\n", "definition limit");
+    std::string aliases;
+    for (int i = 0; i < 65; ++i) aliases += "#define H" + std::to_string(i) + " H" + std::to_string(i + 1) + "\n";
+    exceeds(aliases + "#define H65 \"leaf.h\"\n#include H0\n", "expansion limit");
+    std::string expanded = "#define H \"leaf.h\"\n";
+    for (int i = 0; i < 18; ++i) expanded += "#define A" + std::to_string(i) + " " + (i == 17 ? "H" : "A" + std::to_string(i + 1)) + "\n";
+    for (int i = 0; i < 14000; ++i) expanded += "#if __has_include(A0)\n#endif\n";
+    exceeds(expanded, "expansion limit");
+    // A small alias DAG can repeat a long token many times without reaching
+    // the node-count limit. Bound expanded text before materializing it all.
+    std::string amplified;
+    for (int i = 0; i < 17; ++i) {
+        for (const auto* name : {"A", "B"}) {
+            const auto macro = std::string(name) + std::to_string(i);
+            amplified += "#define " + macro + " A" + std::to_string(i + 1) + "\n";
+            amplified += "#define " + macro + " B" + std::to_string(i + 1) + "\n";
+        }
+    }
+    const auto longHeader = std::string(1024, 'h') + ".h";
+    amplified += "#define A17 \"" + longHeader + "\"\n#define B17 \"" + longHeader + "\"\n#include A0\n";
+    exceeds(amplified, "expansion text limit");
+    for (int i = 0; i < 130; ++i)
+        f.write(std::to_string(i) + ".h", i == 129 ? "#pragma once\n" : "#include \"" + std::to_string(i + 1) + ".h\"\n");
+    exceeds("#include \"0.h\"\n", "round limit");
+}
+
+TEST(CppPreprocessor, UsesCompileDatabaseMacrosAndReportsRealFailure) {
+    auto clang = topo::platform::findOnPath("clang++");
+    if (clang.empty()) GTEST_SKIP() << "clang++ unavailable";
+    Fixture f;
+    auto source = f.write("main.cpp", "void run() { DANGER(\"x\"); }\n");
+    f.database({"clang++", "-DDANGER=system", "-c", "main.cpp"});
+    CppPreprocessorScanner scanner; scanner.setBuildDir(f.root.string()); scanner.setClangPath(clang);
+    auto result = scanner.scanDetailed(source);
+    ASSERT_TRUE(result.complete) << (result.errors.empty() ? "" : result.errors.front());
+    ASSERT_FALSE(result.sites.empty()); EXPECT_EQ(result.sites.front().calleePattern, "system");
+    EXPECT_EQ(result.sites.front().file, source);
+    EXPECT_EQ(result.sites.front().callerQualifiedName.find("[macro-expanded]"), std::string::npos);
+    f.write("main.cpp", "#include \"missing.h\"\nvoid run() {}\n");
+    result = scanner.scanDetailed(source); EXPECT_FALSE(result.complete); EXPECT_FALSE(result.errors.empty());
+    EXPECT_THROW(scanner.scanExpanded(source), std::runtime_error);
+}
+#ifdef TOPO_CPP_AUDIT_LIBCLANG
+#ifndef _WIN32
+TEST(CppAudit, PreventsActualNativeGpuHelperExecution) {
+    Fixture f; f.write("main.cpp", "int run() { return 7; }\n");
+    const auto compiler = f.write("toolchain/clang++", "driver identity only; never executed\n");
+    const auto marker = f.root / "helper-executed";
+    // Use a sibling marker, avoiding shell interpolation of the temporary path.
+    const auto helper = f.write("toolchain/amdgpu-arch",
+        "#!/bin/sh\ndir=${0%/*}\n: > \"$dir/../helper-executed\"\nprintf 'gfx906\\n'\n");
+    fs::permissions(helper, fs::perms::owner_read | fs::perms::owner_write | fs::perms::owner_exec);
+    const auto path = f.database({compiler, "--no-default-config", "--target=amdgcn-amd-amdhsa", "-mcpu=native", "main.cpp"});
+    const auto model = loadCppCompileModel(path, f.root.string());
+    ASSERT_TRUE(model.complete());
+    const auto& unit = model.units.front();
+    auto args = unit.arguments; args.insert(args.begin(), compiler);
+    std::vector<const char*> argv; for (const auto& arg : args) argv.push_back(arg.c_str());
+    CXIndex index = clang_createIndex(0, 0); CXTranslationUnit tu = nullptr;
+    clang_parseTranslationUnit2FullArgv(index, unit.file.c_str(), argv.data(),
+        static_cast<int>(argv.size()), nullptr, 0, 0, &tu);
+    if (tu) clang_disposeTranslationUnit(tu);
+    clang_disposeIndex(index);
+    ASSERT_TRUE(fs::exists(marker)) << "raw Clang control must execute the discovery helper";
+    fs::remove(marker);
+    const auto facts = auditCppCompileModel(path, f.root.string());
+    EXPECT_FALSE(fs::exists(marker));
+    EXPECT_FALSE(facts["complete"].get<bool>());
+    EXPECT_TRUE(facts["identities"].empty());
+    EXPECT_NE(facts["unresolved"].dump().find("before frontend invocation"), std::string::npos);
+}
+#endif
+
+TEST(CppAudit, RejectsGpuDiscoveryBeforeParsingAndExpandsResponseOrder) {
+    Fixture f; f.write("main.cpp", "int run() { return 7; }\n");
+    f.write("gpu.rsp", "--target=amdgcn-amd-amdhsa -mcpu=gfx906 -mcpu=native");
+    const auto path = f.database({"clang++", "@gpu.rsp", "main.cpp"});
+    const auto model = loadCppCompileModel(path, f.root.string());
+    ASSERT_TRUE(model.complete()); ASSERT_EQ(model.units.size(), 1u);
+    EXPECT_FALSE(cppAuditDriverRejection(model.units[0]).empty());
+    const auto facts = auditCppCompileModel(path, f.root.string());
+    EXPECT_FALSE(facts["complete"].get<bool>());
+    EXPECT_TRUE(facts["identities"].empty());
+    EXPECT_NE(facts["unresolved"].dump().find("before frontend invocation"), std::string::npos);
+    EXPECT_EQ(facts["unresolved"].dump().find("cannot parse translation unit"), std::string::npos);
+    EXPECT_EQ(facts["unresolved"].dump().find("posix_spawn"), std::string::npos);
+    f.write("gpu.rsp", "--target=amdgcn-amd-amdhsa -mcpu=native -mcpu=gfx906");
+    const auto explicitModel = loadCppCompileModel(path, f.root.string());
+    ASSERT_TRUE(explicitModel.complete());
+    EXPECT_TRUE(cppAuditDriverRejection(explicitModel.units[0]).empty());
+}
+
+TEST(CppAudit, SearchAndParsedInputPathsFollowPhysicalSymlinkTraversal) {
+    Fixture f;
+    f.write("left/value.h", "inline int selected_left(){return 11;}\n#define selected selected_left\n");
+    auto actual = f.write("right/value.h", "inline int selected_right(){return 22;}\n#define selected selected_right\n");
+    fs::create_directories(f.root / "right/nested");
+    fs::create_directory_symlink("../right/nested", f.root / "left/link");
+    for (const auto& include : {std::string("<value.h>"), std::string("\"left/link/../value.h\"")}) {
+        f.write("main.cpp", "#include " + include + "\nint run(){return selected();}\n");
+        const auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Ileft/link/..", "-c", "main.cpp"});
+        auto facts = auditCppCompileModel(path, f.root.string());
+        EXPECT_TRUE(facts.value("complete", false)) << facts.at("unresolved").dump();
+        bool correct = false, wrong = false;
+        for (const auto& item : facts.at("identities")) {
+            if (item.at("name") == "selected_right") { correct = true; EXPECT_EQ(item.at("file"), actual); }
+            if (item.at("name") == "selected_left") wrong = true;
+        }
+        EXPECT_TRUE(correct); EXPECT_FALSE(wrong);
+        for (const auto& file : facts.at("inputs")) {
+            if (fs::path(file.get<std::string>()).extension() == ".h")
+                EXPECT_EQ(cppCanonicalPath(file.get<std::string>()), actual);
+        }
+    }
+}
+namespace {
+long long parsedObservedValue(const CppCompileModel& model) {
+    auto index = clang_createIndex(0, 0);
+    auto args = model.units.at(0).arguments;
+    args.insert(args.begin(), model.units.at(0).compiler);
+    std::vector<const char*> argv;
+    for (const auto& arg : args) argv.push_back(arg.c_str());
+    CXTranslationUnit tu = nullptr;
+    const auto status = clang_parseTranslationUnit2FullArgv(index, model.units[0].file.c_str(), argv.data(),
+        static_cast<int>(argv.size()), nullptr, 0, 0, &tu);
+    EXPECT_EQ(status, CXError_Success);
+    long long value = -1;
+    if (tu) {
+        for (unsigned i = 0; i < clang_getNumDiagnostics(tu); ++i) {
+            auto diag = clang_getDiagnostic(tu, i);
+            EXPECT_LT(clang_getDiagnosticSeverity(diag), CXDiagnostic_Error);
+            clang_disposeDiagnostic(diag);
+        }
+        clang_visitChildren(clang_getTranslationUnitCursor(tu), [](CXCursor cursor, CXCursor, CXClientData data) {
+            auto name = clang_getCursorSpelling(cursor);
+            const bool selected = std::string(clang_getCString(name)) == "observed";
+            clang_disposeString(name);
+            if (selected) {
+                auto evaluated = clang_Cursor_Evaluate(cursor);
+                if (evaluated) {
+                    *static_cast<long long*>(data) = clang_EvalResult_getAsLongLong(evaluated);
+                    clang_EvalResult_dispose(evaluated);
+                }
+            }
+            return CXChildVisit_Recurse;
+        }, &value);
+        clang_disposeTranslationUnit(tu);
+    }
+    clang_disposeIndex(index);
+    return value;
+}
+}
+TEST(CppAuditMacroHeaderClosure, RealClangInputsAndValuesFollowMacroChanges) {
+    Fixture f;
+    f.write("main.cpp", "#include HEADER\n#ifndef BONUS\n#define BONUS 0\n#endif\n#if __has_include(OPTIONAL)\n#include OPTIONAL\n#endif\nconstexpr int observed = VALUE + BONUS;\n");
+    f.write("defs.h", "#define HEADER ALIAS\n#if CHOICE\n#define ALIAS \"value.h\"\n#else\n#define ALIAS \"other.h\"\n#endif\n#define OPTIONAL \"optional.h\"\n");
+    f.write("late/value.h", "#define DETAIL \"detail.h\"\n#include DETAIL\n");
+    f.write("late/detail.h", "#define VALUE 7\n"); f.write("late/other.h", "#define VALUE 20\n");
+    auto flags = std::vector<std::string>{"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iearly", "-Ilate", "-imacros", "defs.h", "-DCHOICE=1", "-c", "main.cpp"};
+    auto path = f.database(flags); json previous;
+    auto observe = [&](long long expected) {
+        const auto model = loadCppCompileModel(path, f.root.string());
+        const auto identity = cppAuditInputIdentity(model);
+        ASSERT_TRUE(identity["supported"].get<bool>()) << identity.dump();
+        EXPECT_NE(identity, previous); previous = identity;
+        EXPECT_EQ(parsedObservedValue(model), expected);
+        const auto facts = auditCppCompileModel(path, f.root.string());
+        EXPECT_TRUE(facts["complete"].get<bool>()) << facts["unresolved"].dump();
+        for (const auto& [input, digest] : facts["inputDigests"].items()) {
+            ASSERT_TRUE(identity["inputs"].contains(input)) << input;
+            EXPECT_EQ(identity["inputs"][input]["sha256"], digest);
+        }
+    };
+    observe(7);
+    f.write("late/detail.h", "#define VALUE 8\n"); observe(8);
+    f.write("early/value.h", "#define VALUE 9\n"); observe(9);
+    f.write("early/optional.h", "#undef BONUS\n#define BONUS 100\n"); observe(109);
+    flags.insert(flags.end(), {"-UCHOICE", "-D", "CHOICE=0"}); path = f.database(flags); observe(120);
+    f.write("defs.h", "#define HEADER ALIAS\n#define ALIAS \"value.h\"\n#define OPTIONAL \"optional.h\"\n"); observe(109);
+    fs::remove(f.root / "early/value.h"); observe(108);
+}
+TEST(CppAuditMacroHeaderClosure, RealClangCommandAndForcedMacroOrderMatchesClosedInputs) {
+    Fixture f;
+    f.write("main.cpp", "#include HEADER\nconstexpr int observed = VALUE;\n");
+    f.write("macros.h", "#define SELECTED \"value.h\"\n");
+    f.write("forced.h", "#define HEADER SELECTED\n");
+    f.write("value.h", "#define VALUE 42\n");
+    auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-include", "forced.h", "-DSELECTED=\"wrong.h\"", "-USELECTED", "-imacros", "macros.h", "-c", "main.cpp"});
+    auto model = loadCppCompileModel(path, f.root.string()); auto identity = cppAuditInputIdentity(model);
+    ASSERT_TRUE(identity["supported"].get<bool>()) << identity.dump();
+    EXPECT_EQ(parsedObservedValue(model), 42);
+    EXPECT_TRUE(identity["inputs"].contains((f.root / "value.h").string()));
+    path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-D", "HEADER=\"wrong.h\"", "-UHEADER", "-DHEADER=\"value.h\"", "-c", "main.cpp"});
+    model = loadCppCompileModel(path, f.root.string()); identity = cppAuditInputIdentity(model);
+    ASSERT_TRUE(identity["supported"].get<bool>()) << identity.dump();
+    EXPECT_EQ(parsedObservedValue(model), 42);
+    EXPECT_FALSE(identity["searchCandidates"].contains((f.root / "wrong.h").string()));
+}
+
+TEST(CppAuditHeaderClosure, RealClangValuesFollowNegativeNextForcedResponseAndSymlinkChanges) {
+    Fixture f;
+    f.write("main.cpp", "#include <value.h>\n#ifndef BONUS\n#define BONUS 0\n#endif\n#if __has_include(<optional.h>)\n#include <optional.h>\n#endif\nconstexpr int observed = VALUE + BONUS + FORCED;\n");
+    f.write("first/value.h", "#if __has_include_next(<value.h>)\n#include_next <value.h>\n#endif\n");
+    f.write("second/value.h", "#include \"detail.h\"\n"); f.write("second/detail.h", "#define VALUE 7\n");
+    f.write("forced.h", "#define FORCED 1\n");
+    fs::create_directory_symlink(f.root / "second", f.root / "selected");
+    f.write("args.rsp", "-std=c++17 -nostdinc -nostdinc++ -Iearly -Ifirst -Iselected -include forced.h");
+    auto path = f.database({"clang++", "@args.rsp", "-c", "main.cpp"});
+    json previous;
+    auto observe = [&](long long expected) {
+        auto model = loadCppCompileModel(path, f.root.string());
+        auto identity = cppAuditInputIdentity(model);
+        ASSERT_TRUE(identity["supported"].get<bool>()) << identity.dump();
+        EXPECT_NE(identity, previous); previous = identity;
+        EXPECT_EQ(parsedObservedValue(model), expected);
+        auto facts = auditCppCompileModel(path, f.root.string());
+        EXPECT_TRUE(facts["complete"].get<bool>()) << facts["unresolved"].dump();
+        for (const auto& [input, digest] : facts["inputDigests"].items()) {
+            ASSERT_TRUE(identity["inputs"].contains(input)) << input;
+            EXPECT_EQ(identity["inputs"][input]["sha256"], digest);
+        }
+    };
+    observe(8);
+    f.write("second/detail.h", "#define VALUE 8\n"); observe(9);
+    f.write("early/value.h", "#define VALUE 20\n"); observe(21);
+    f.write("early/optional.h", "#undef BONUS\n#define BONUS 100\n"); observe(121);
+    f.write("forced.h", "#define FORCED 2\n"); observe(122);
+    f.write("args.rsp", "-std=c++17 -nostdinc -nostdinc++ -Iselected -Iearly -Ifirst -include forced.h"); observe(110);
+    f.write("third/value.h", "#define VALUE 30\n");
+    fs::remove(f.root / "selected"); fs::create_directory_symlink(f.root / "third", f.root / "selected"); observe(132);
+}
+
+TEST(CppAudit, BuiltinsDoNotCreatePhantomDependenciesAndSystemInputsHaveIdentity) {
+    Fixture f;
+    f.write("main.cpp", "namespace app { int value() { return 42; } }\n");
+    auto path = f.database({"clang++", "-std=c++17", "-g", "-c", "main.cpp"});
+    auto facts = auditCppCompileModel(path, f.root.string());
+    EXPECT_TRUE(facts["complete"].get<bool>()) << facts["unresolved"].dump();
+    EXPECT_TRUE(facts["dependencies"].empty());
+    const auto headers = fs::path(f.root.string() + "-system");
+    fs::create_directories(headers);
+    std::ofstream(headers / "value.h") << "inline int system_value() { return 7; }\n";
+    f.write("main.cpp", "#include <value.h>\nnamespace app { int value() { return system_value(); } }\n");
+    path = f.database({"clang++", "-std=c++17", "-isystem", headers.string(), "-c", "main.cpp"});
+    facts = auditCppCompileModel(path, f.root.string());
+    EXPECT_TRUE(facts["complete"].get<bool>()) << facts["unresolved"].dump();
+    ASSERT_EQ(facts["dependencies"].size(), 1u);
+    const auto digest = facts["dependencies"][0]["digest"].get<std::string>();
+    EXPECT_EQ(digest.size(), 64u);
+    std::ofstream(headers / "value.h") << "inline int system_value() { return 8; }\n";
+    EXPECT_NE(auditCppCompileModel(path, f.root.string())["dependencies"][0]["digest"], digest);
+    fs::remove_all(headers);
+}
+TEST(CppAudit, DistinguishesSameNamedClassesAndBindsOutOfLineDefinition) {
+    Fixture f;
+    f.write("log.h", "namespace real { class Log { public: void write(); }; } namespace fake { class Log { public: void write() {} }; }\n");
+    f.write("main.cpp", "#include \"log.h\"\nvoid real::Log::write() {}\nvoid run() { real::Log value; value.write(); }\n");
+    auto model = f.database({"clang++", "-std=c++17", "-c", "main.cpp"});
+    auto facts = auditCppCompileModel(model, f.root.string());
+    EXPECT_TRUE(facts["complete"].get<bool>()) << facts["unresolved"].dump();
+    std::string target;
+    for (const auto& id : facts["identities"]) if (id["name"] == "real::Log::write") {
+        target = id["id"]; EXPECT_EQ(id["file"], (f.root / "main.cpp").string()); EXPECT_FALSE(id["owner"].get<std::string>().empty());
+    }
+    ASSERT_FALSE(target.empty());
+    bool found = false; for (const auto& ref : facts["references"]) if (ref["target"] == target) { found = true; EXPECT_TRUE(ref["runtimeTargetsComplete"].get<bool>()); }
+    EXPECT_TRUE(found); EXPECT_GE(facts["inputDigests"].size(), 3u);
+}
+TEST(CppAudit, VirtualAndFunctionPointerCallsStayUnverified) {
+    Fixture f;
+    f.write("main.cpp", "struct Base { virtual void run() {} }; void direct(Base& b, void (*fn)()) { b.run(); fn(); }\n");
+    auto facts = auditCppCompileModel(f.database({"clang++", "-std=c++17", "-c", "main.cpp"}), f.root.string());
+    EXPECT_TRUE(facts["complete"].get<bool>()) << facts["unresolved"].dump();
+    int unresolved = 0; for (const auto& ref : facts["references"]) if (!ref["runtimeTargetsComplete"].get<bool>()) ++unresolved;
+    EXPECT_EQ(unresolved, 2);
+}
+TEST(CppAudit, ProviderUsesTheSameSemanticSnapshotForChecks) {
+    Fixture f; f.write("main.cpp", "namespace app { class Log { public: void write() {} private: void hidden() {} }; void run() { Log log; log.write(); } }\n");
+    auto model = f.database({"clang++", "-std=c++17", "-c", "main.cpp"});
+    auto provider = createCppAnalysisProvider(); provider->configureAnalysis(f.root.string(), model);
+    auto facts = provider->auditFacts({}); ASSERT_TRUE(facts.supported);
+    EXPECT_TRUE(facts.complete) << json(facts.unresolved).dump();
+    auto files = provider->collectSourceFiles(f.root.string(), {}); ASSERT_EQ(files.size(), 1u);
+    auto symbols = provider->createSymbolExtractor()->extractSymbols(files[0]);
+    bool hidden = false;
+    for (const auto& symbol : symbols) if (symbol.qualifiedName == "app::Log::hidden") { hidden = true; ASSERT_TRUE(symbol.hostVisibility); EXPECT_EQ(*symbol.hostVisibility, topo::Visibility::Private); }
+    EXPECT_TRUE(hidden);
+}
+#endif
+
+TEST(CppCMakeModel, RequiresConfiguredReplyWithoutExecutingProjectScripts) {
+    Fixture f;
+    f.write("CMakeLists.txt", "message(FATAL_ERROR unexpected execution)\n");
+    auto model = readCppCMakeModel((f.root / "build").string(), f.root.string());
+    EXPECT_FALSE(model.present); ASSERT_EQ(model.unresolved.size(), 1u);
+    EXPECT_NE(model.unresolved.front().find("File API"), std::string::npos);
+}
+TEST(CppCMakeModel, SourceAndConfigMetadataRemainExplicit) {
+    Fixture f; f.write("main.cpp", "int main() {}\n"); f.write("CMakeLists.txt", "project(test)\n");
+    auto base = std::string("build/.cmake/api/v1/reply/");
+    f.write(base + "index-1.json", json{{"objects", json::array({{{"kind", "codemodel"}, {"jsonFile", "model.json"}}, {{"kind", "cmakeFiles"}, {"jsonFile", "files.json"}}})}}.dump());
+    f.write(base + "model.json", json{{"paths", {{"source", f.root.string()}, {"build", (f.root / "build").string()}}}, {"configurations", json::array({{{"targets", json::array({{{"jsonFile", "target.json"}}})}}})}}.dump());
+    f.write(base + "files.json", json{{"inputs", json::array({{{"path", "CMakeLists.txt"}}})}}.dump());
+    f.write(base + "target.json", json{{"sources", json::array({{{"path", "main.cpp"}}})}}.dump());
+    auto model = readCppCMakeModel((f.root / "build").string(), f.root.string());
+    EXPECT_TRUE(model.present); EXPECT_TRUE(model.unresolved.empty()); ASSERT_EQ(model.sources.size(), 1u);
+    EXPECT_EQ(model.sources.front(), (f.root / "main.cpp").string());
+}

@@ -19,6 +19,7 @@
 // skew between topo-check-time parsing and build-time parsing.
 
 #include <clang-c/Index.h>
+#include "CppAuditExtractor.h"
 #include <nlohmann/json.hpp>
 
 #include "topo/Platform/Process.h"
@@ -2337,8 +2338,16 @@ static int run() {
     return 0;
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--audit-cache-identity") {
+            std::cout << auditCppToolIdentity().dump() << std::flush;
+            return 0;
+        }
+        if (argc == 4 && std::string(argv[1]) == "--audit-model") {
+            std::cout << auditCppCompileModel(argv[2], argv[3]).dump() << std::flush;
+            return 0;
+        }
         return run();
     } catch (const std::exception& e) {
         std::cerr << "topo-extract-cpp: fatal error: " << e.what() << "\n";

@@ -1,5 +1,6 @@
 #include "NinjaGen.h"
 #include "topo/Build/BuildConfig.h"
+#include "topo/Build/ExecutionEvidence.h"
 #include "topo/Platform/Platform.h"
 #include "topo/Platform/Process.h"
 
@@ -150,13 +151,16 @@ bool NinjaGen::generate(const BuildConfig& cfg, const fs::path& ninjaPath, const
     return true;
 }
 
-int NinjaGen::run(const fs::path& ninjaDir, bool verbose) {
+int NinjaGen::run(const fs::path& ninjaDir, bool verbose, evidence::ExecutionRecorder* recorder,
+                  const std::vector<std::string>& outputs) {
     std::string ninja = resolveNinja();
     if (ninja.empty()) return -1;
 
     std::vector<std::string> args = {"-C", ninjaDir.generic_string()};
     if (verbose) args.push_back("-v");
 
+    if (recorder) return recorder->run("ninja-build", ninja, args,
+                                      {(ninjaDir / "build.ninja").string()}, outputs, verbose).exitCode;
     return platform::runProcess(ninja, args, verbose).exitCode;
 }
 

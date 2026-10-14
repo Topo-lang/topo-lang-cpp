@@ -1,0 +1,7 @@
+// Whole type boundary: only Log owns its omitted private hidden helper.
+// Other.hidden remains checked. Host fixtures are parsed, never executed.
+namespace app {
+public:
+    external type Log { public: void write(); }
+    type Other { public: void hidden(); }
+}

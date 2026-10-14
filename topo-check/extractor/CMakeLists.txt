@@ -39,10 +39,10 @@ else()
     message(STATUS "topo-extract-cpp: bundled resource-dir = ${_TOPO_RESOURCE_DIR}")
 endif()
 
-add_executable(topo-extract-cpp main.cpp)
+add_executable(topo-extract-cpp main.cpp CppAuditExtractor.cpp CppAuditDriver.cpp ../analysis/CppCompileModel.cpp ../analysis/CppCMakeModel.cpp)
 
-target_include_directories(topo-extract-cpp PRIVATE
-    ${CLANG_INCLUDE_DIRS}
+target_include_directories(topo-extract-cpp SYSTEM PRIVATE
+    ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS}
 )
 
 target_compile_definitions(topo-extract-cpp PRIVATE
@@ -50,8 +50,9 @@ target_compile_definitions(topo-extract-cpp PRIVATE
 )
 
 target_link_libraries(topo-extract-cpp PRIVATE
-    libclang
+    libclang clangDriver
     topo::core::TopoTranspile
+    topo::core::TopoDistribution
     nlohmann_json::nlohmann_json
 )
 
@@ -65,3 +66,7 @@ install(TARGETS topo-extract-cpp
 # Relocatable install: rewrite the absolute libclang load command to @rpath so a
 # copied binary finds libclang via @loader_path/../lib instead of the build host.
 topo_relocate_llvm_rpath(topo-extract-cpp libclang)
+
+# The pre-driver option parser links the same distribution's Clang Driver.
+# Its static target carries LLVM when that distribution uses the shared dylib.
+topo_relocate_llvm_rpath(topo-extract-cpp libLLVM)

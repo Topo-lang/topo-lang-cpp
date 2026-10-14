@@ -1,8 +1,12 @@
 # Lang type tests (header-only, no LLVM)
+add_subdirectory(isolated-build)
+
 add_executable(topo-lang-cpp-tests
+    unit/WholeExternalTypeTest.cpp
     unit/RuntimeTypesTest.cpp
     unit/CppStubGeneratorTest.cpp
     unit/CppAnalysisProviderTest.cpp
+    unit/CppAuditTest.cpp
     unit/CppSymbolExtractorTest.cpp
     unit/CppSymbolAccessExtractorTest.cpp
     unit/CppExtractorTest.cpp
@@ -31,6 +35,24 @@ target_include_directories(topo-lang-cpp-tests PRIVATE
 if(EXISTS "${PROJECT_SOURCE_DIR}/topo-llvm/runtime/include")
     target_include_directories(topo-lang-cpp-tests PRIVATE
         ${PROJECT_SOURCE_DIR}/topo-llvm/runtime/include)
+endif()
+
+# Recording/pinning input helpers are exercised independently while the audit
+# provider still uses its existing cache protocol. Directory reads on Windows
+# are explicitly unsupported by the helper; that platform needs its own
+# handle-based enumeration and runtime verification before enabling this suite.
+if(TARGET topo-extract-cpp AND (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+add_executable(topo-cpp-audit-filesystem-tests
+    unit/CppAuditFileSystemTest.cpp
+    unit/CppAuditNativeFileTest.cpp
+    ../topo-check/extractor/CppAuditFileSystem.cpp
+    ../topo-check/extractor/CppAuditNativeFile.cpp)
+target_include_directories(topo-cpp-audit-filesystem-tests SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
+target_link_libraries(topo-cpp-audit-filesystem-tests PRIVATE LLVM GTest::gtest_main)
+target_compile_features(topo-cpp-audit-filesystem-tests PRIVATE cxx_std_17)
+gtest_discover_tests(topo-cpp-audit-filesystem-tests
+    TEST_PREFIX "cpp-audit-filesystem." DISCOVERY_TIMEOUT 30
+    PROPERTIES LABELS "toolchain;lang-cpp;audit" TIMEOUT 60)
 endif()
 topo_set_compiler_flags(topo-lang-cpp-tests)
 # AppStaticRegexTest includes app_static.h → app.h, whose Field<"name", T>
@@ -107,3 +129,69 @@ endif()
 # Feature dimension labels
 set_property(DIRECTORY APPEND PROPERTY
     TEST_INCLUDE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/FeatureMap.cmake")
+
+# Semantic audit tests require libclang; the compile-model and preprocessor
+# cases above remain available in the LLVM-free language SDK build.
+if(TARGET topo-extract-cpp)
+find_package(Clang REQUIRED CONFIG)
+add_executable(topo-cpp-audit-semantic-tests
+    unit/CppAuditTest.cpp
+    unit/CppAuditDriverTest.cpp
+    ../topo-check/extractor/CppAuditDriver.cpp
+    ../topo-check/extractor/CppAuditExtractor.cpp)
+target_compile_definitions(topo-cpp-audit-semantic-tests PRIVATE TOPO_CPP_AUDIT_LIBCLANG=1)
+target_include_directories(topo-cpp-audit-semantic-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../topo-check
+    ${CMAKE_CURRENT_SOURCE_DIR}/../topo-check/extractor)
+target_include_directories(topo-cpp-audit-semantic-tests SYSTEM PRIVATE
+    ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
+target_link_libraries(topo-cpp-audit-semantic-tests PRIVATE
+    TopoCppAnalysis topo::core::TopoDistribution libclang clangDriver GTest::gtest_main)
+add_dependencies(topo-cpp-audit-semantic-tests topo-extract-cpp)
+# Keep the real extractor adjacent to this test executable so the provider's
+# installed-tool lookup is exercised without a project-local override.
+set_target_properties(topo-cpp-audit-semantic-tests PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/topo-check-audit-tests")
+add_custom_command(TARGET topo-cpp-audit-semantic-tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:topo-extract-cpp> $<TARGET_FILE_DIR:topo-cpp-audit-semantic-tests>)
+gtest_discover_tests(topo-cpp-audit-semantic-tests TEST_PREFIX "cpp-audit-semantic." DISCOVERY_TIMEOUT 30
+    PROPERTIES LABELS "toolchain;lang-cpp;audit" TIMEOUT 60)
+endif()
+
+# These internal frontend controls use the matching Clang package and the
+# macOS SDK. Other platforms require their own standard-library input grants.
+# The helper remains separate from the CLI until its observation protocol and
+# worker resource limits are connected.
+if(TARGET topo-extract-cpp AND APPLE AND TARGET clang-cpp)
+set(_audit_frontend_resource "${CLANG_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}")
+set(_audit_frontend_compiler "${CLANG_INSTALL_PREFIX}/bin/clang++")
+set(_audit_frontend_sdk "${CMAKE_OSX_SYSROOT}")
+if(NOT IS_DIRECTORY "${_audit_frontend_sdk}")
+    find_program(_audit_xcrun xcrun REQUIRED)
+    execute_process(COMMAND "${_audit_xcrun}" --show-sdk-path
+        OUTPUT_VARIABLE _audit_frontend_sdk OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY)
+endif()
+add_executable(topo-cpp-audit-frontend-tests
+    unit/CppAuditFrontendTest.cpp
+    ../topo-check/extractor/CppAuditFrontend.cpp
+    ../topo-check/extractor/CppAuditDriver.cpp
+    ../topo-check/extractor/CppAuditFileSystem.cpp
+    ../topo-check/extractor/CppAuditNativeFile.cpp)
+target_include_directories(topo-cpp-audit-frontend-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../topo-check/extractor)
+target_include_directories(topo-cpp-audit-frontend-tests SYSTEM PRIVATE
+    ${CLANG_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
+target_compile_definitions(topo-cpp-audit-frontend-tests PRIVATE
+    "TOPO_FRONTEND_TEST_COMPILER=\"${_audit_frontend_compiler}\""
+    "TOPO_FRONTEND_TEST_RESOURCE=\"${_audit_frontend_resource}\""
+    "TOPO_FRONTEND_TEST_SDK=\"${_audit_frontend_sdk}\""
+    TOPO_FRONTEND_TEST_RECORDING_FS=1)
+target_compile_features(topo-cpp-audit-frontend-tests PRIVATE cxx_std_17)
+target_link_libraries(topo-cpp-audit-frontend-tests PRIVATE
+    libclang clang-cpp LLVM nlohmann_json::nlohmann_json GTest::gtest_main)
+gtest_discover_tests(topo-cpp-audit-frontend-tests
+    TEST_PREFIX "cpp-audit-frontend." DISCOVERY_TIMEOUT 30
+    PROPERTIES LABELS "toolchain;lang-cpp;audit" TIMEOUT 60)
+endif()

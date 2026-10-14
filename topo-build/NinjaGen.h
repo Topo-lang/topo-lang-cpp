@@ -8,6 +8,7 @@
 namespace topo::build {
 
 struct BuildConfig;
+namespace evidence { class ExecutionRecorder; }
 
 class NinjaGen {
 public:
@@ -24,7 +25,9 @@ public:
     /// @param ninjaDir  Directory containing build.ninja
     /// @param verbose   If true, pass -v to ninja
     /// @return ninja exit code (0 = success)
-    static int run(const std::filesystem::path& ninjaDir, bool verbose = false);
+    static int run(const std::filesystem::path& ninjaDir, bool verbose = false,
+                   evidence::ExecutionRecorder* recorder = nullptr,
+                   const std::vector<std::string>& outputs = {});
 
     /// Check if ninja is available on the system.
     static bool isAvailable();

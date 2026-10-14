@@ -1,5 +1,7 @@
 add_library(TopoCppAnalysis
     CppAnalysisProvider.cpp
+    CppCompileModel.cpp
+    CppCMakeModel.cpp
     extract/CppCallEdgeExtractor.cpp
     extract/CppCallSiteExtractor.cpp
     extract/CppImportExtractor.cpp
@@ -34,7 +36,7 @@ target_include_directories(TopoCppAnalysis
 # (LSPBridge.h moved to topo-core in phase-1 D2).
 target_link_libraries(TopoCppAnalysis
     PUBLIC topo::core::TopoCheck TopoCppLSP
-    PRIVATE topo::core::TopoPlatform)
+    PRIVATE topo::core::TopoPlatform topo::core::TopoDistribution nlohmann_json::nlohmann_json)
 # TOPO_SOURCE_DIR is used by CppSafePatterns.cpp for source-tree catalog
 # discovery (with runtime fallback if not present). In standalone mode
 # we point it at the topo-lang-cpp source root so the legacy path
