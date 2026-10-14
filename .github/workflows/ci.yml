@@ -75,7 +75,7 @@ jobs:
           # dev); the key interpolates the ref, not the ref's content, so a
           # cache saved against the pre-merge dev would keep serving the
           # fix-less core. Bump to force the fresh clone.
-          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v4
+          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v5-audit
 
       - name: Build & install topo-core (zero-LLVM, lang-less)
         if: steps.upstream-cache.outputs.cache-hit != 'true'
