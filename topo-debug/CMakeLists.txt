@@ -12,15 +12,20 @@ if(NOT TOPO_ENABLE_LLVM)
     return()
 endif()
 
-# Derive LLDB paths from the LLVM distribution selected by find_package(LLVM).
-# LLVM_INSTALL_PREFIX is set by LLVMConfig.cmake; bundled topo-llvm/llvm-dev/
-# and brew/system LLVM share the same layout.
-set(_LLDB_PREFIX "${LLVM_INSTALL_PREFIX}")
+# LLDB can be distributed separately from the selected analysis toolchain
+# (for example Homebrew's lldb formula). Its headers and library must come
+# from one prefix; the adapter does not link LLVM or Clang directly.
+set(TOPO_LANG_CPP_LLDB_ROOT "" CACHE PATH "Independent LLDB installation (defaults to the selected LLVM prefix)")
+if(TOPO_LANG_CPP_LLDB_ROOT)
+    set(_LLDB_PREFIX "${TOPO_LANG_CPP_LLDB_ROOT}")
+else()
+    set(_LLDB_PREFIX "${LLVM_INSTALL_PREFIX}")
+endif()
 # Prefer the stable unversioned Homebrew opt symlink over the versioned Cellar
 # keg LLVMConfig may resolve to (…/Cellar/llvm/22.1.7 → …/opt/llvm): the cache
 # entry derived below (LLDB_LIBRARY) and the BUILD_RPATH/dev-fallback rpath
 # would otherwise dangle after every `brew upgrade llvm` patch bump.
-if(_LLDB_PREFIX MATCHES "^(.+)/Cellar/(llvm[^/]*)/[^/]+$")
+if(_LLDB_PREFIX MATCHES "^(.+)/Cellar/(llvm[^/]*|lldb[^/]*)/[^/]+$")
     set(_LLDB_PREFIX_STABLE "${CMAKE_MATCH_1}/opt/${CMAKE_MATCH_2}")
     if(EXISTS "${_LLDB_PREFIX_STABLE}/lib")
         set(_LLDB_PREFIX "${_LLDB_PREFIX_STABLE}")
@@ -29,13 +34,12 @@ endif()
 set(_LLDB_INCLUDE_DIR "${_LLDB_PREFIX}/include")
 set(_LLDB_LIB_DIR "${_LLDB_PREFIX}/lib")
 
-# Heal a dangling cache entry (a versioned Cellar path cached before an LLVM
-# patch bump) so a plain reconfigure re-probes instead of failing at build
-# time on the vanished keg.
-if(LLDB_LIBRARY AND NOT EXISTS "${LLDB_LIBRARY}")
-    message(STATUS "topo-debug-cpp: cached LLDB_LIBRARY dangles (${LLDB_LIBRARY}) — re-probing")
-    unset(LLDB_LIBRARY CACHE)
-endif()
+# Re-probe the selected prefix on each configure. find_library otherwise
+# keeps an existing cache entry even when TOPO_LANG_CPP_LLDB_ROOT changes,
+# pairing the new headers with the previous installation's library. This
+# also heals dangling versioned Homebrew paths after a package upgrade.
+unset(LLDB_LIBRARY CACHE)
+unset(LLDB_LIBRARY)
 
 # Discover the liblldb library file (Linux: .so, macOS: .dylib, Windows: .dll).
 find_library(LLDB_LIBRARY

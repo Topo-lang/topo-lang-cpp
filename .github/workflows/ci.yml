@@ -225,7 +225,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14]
+        # The independent Homebrew LLDB package has a Sequoia bottle.
+        os: [ubuntu-24.04, macos-15]
     steps:
       - uses: actions/checkout@v5
 
@@ -233,7 +234,7 @@ jobs:
       #    clangd (the L2 containment check must RUN, not GTEST_SKIP) ──
       - name: Install build deps + LLVM (macos)
         if: runner.os == 'macOS'
-        run: brew install ninja llvm@22
+        run: brew install ninja llvm@22 lldb
 
       - name: Point find_package(LLVM/Clang) + BYO resolver at brew llvm@22 (macos)
         if: runner.os == 'macOS'
@@ -245,6 +246,13 @@ jobs:
           # containment cases RUN instead of GTEST_SKIP (a skip is not a pass).
           echo "TOPO_LLVM_DIR=${BREW_LLVM}" >> "$GITHUB_ENV"
           echo "${BREW_LLVM}/bin" >> "$GITHUB_PATH"
+          # Homebrew now distributes LLDB separately. Its public API is
+          # independent of the LLVM 22 analysis/extractor toolchain.
+          LLDB_ROOT="$(brew --prefix lldb)"
+          test -f "${LLDB_ROOT}/include/lldb/API/SBDebugger.h"
+          test -f "${LLDB_ROOT}/lib/liblldb.dylib"
+          echo "TOPO_LLDB_ROOT=${LLDB_ROOT}" >> "$GITHUB_ENV"
+          echo "TOPO_LLDB_LLVM_ROOT=$(brew --prefix llvm)" >> "$GITHUB_ENV"
 
       - name: Install build deps (linux)
         if: runner.os == 'Linux'
@@ -367,6 +375,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
               -DTOPO_LANG_CPP_ENABLE_LLVM=ON \
               -DTOPO_LANG_CPP_BUILD_TESTS=ON \
+              -DTOPO_LANG_CPP_LLDB_ROOT="${TOPO_LLDB_ROOT:-}" \
               -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/topo-install;${RUNNER_TEMP}/topo-cli-install;${LLVM_ROOT}" \
               -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
 
@@ -436,7 +445,7 @@ jobs:
       # adapter's declared @loader_path/../lib rpath was dead weight: dyld
       # consults LC_RPATH only for @rpath/ load commands, and liblldb was
       # recorded by absolute build-host path. Note brew's liblldb has a
-      # VERSIONED basename (liblldb.22.1.7.dylib), so the bundle must use the
+      # VERSIONED basename, so the bundle must use the
       # exact name the rewritten load command records; liblldb itself then
       # pulls @rpath/libLLVM + @rpath/libclang-cpp through its own embedded
       # @loader_path/../lib rpath, so the closure bundles those two as well.
@@ -455,15 +464,15 @@ jobs:
           otool -L "$BIN" | grep -qE '@rpath/liblldb[^ ]*\.dylib' \
             || { echo "FAIL: no @rpath/liblldb load command"; exit 1; }
           # No exact-patch Homebrew keg may survive as an rpath — the install
-          # step rewrites …/Cellar/llvm*/<ver>/lib to the stable opt form.
-          if otool -l "$BIN" | grep -E 'path .*/Cellar/llvm[^/]*/[0-9]'; then
-            echo "FAIL: installed topo-debug-cpp still carries a versioned Cellar LLVM rpath"; exit 1
+          # step rewrites versioned LLVM/LLDB Cellar paths to stable opt forms.
+          if otool -l "$BIN" | grep -E 'path .*/Cellar/(llvm|lldb)[^/]*/[0-9]'; then
+            echo "FAIL: installed topo-debug-cpp still carries a versioned Cellar LLVM/LLDB rpath"; exit 1
           fi
           mkdir -p "$PREFIX/lib"
           LLDB_NAME="$(otool -L "$BIN" | sed -n 's|^[[:space:]]*@rpath/\(liblldb[^ ]*\.dylib\).*|\1|p' | head -1)"
-          cp -L "$(brew --prefix llvm@22)/lib/$LLDB_NAME"         "$PREFIX/lib/$LLDB_NAME"
-          cp -L "$(brew --prefix llvm@22)/lib/libLLVM.dylib"      "$PREFIX/lib/"
-          cp -L "$(brew --prefix llvm@22)/lib/libclang-cpp.dylib" "$PREFIX/lib/"
+          cp -L "${TOPO_LLDB_ROOT}/lib/$LLDB_NAME"              "$PREFIX/lib/$LLDB_NAME"
+          cp -L "${TOPO_LLDB_LLVM_ROOT}/lib/libLLVM.dylib"      "$PREFIX/lib/"
+          cp -L "${TOPO_LLDB_LLVM_ROOT}/lib/libclang-cpp.dylib" "$PREFIX/lib/"
           for rp in $(otool -l "$BIN" | awk '/LC_RPATH/{f=1} f&&/ path /{print $2; f=0}'); do
             case "$rp" in @loader_path*) ;; *) install_name_tool -delete_rpath "$rp" "$BIN" || true ;; esac
           done

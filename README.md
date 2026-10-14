@@ -29,6 +29,12 @@ cmake -B build && cmake --build build
 
 Integration tests (NinjaGen) require `TOPO_ENABLE_LLVM=ON` for clang resolution.
 
+When LLDB is packaged separately from the LLVM analysis toolchain, set
+`-DTOPO_LANG_CPP_LLDB_ROOT=/path/to/lldb` to use its matching headers and
+library for `topo-debug-cpp`. For Homebrew this is `$(brew --prefix lldb)`;
+the selected LLVM/Clang installation continues to serve the extractor and
+compiler driver.
+
 ## Tests
 
 ```bash
