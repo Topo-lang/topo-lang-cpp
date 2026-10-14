@@ -1,15 +1,23 @@
 #include "CppCompileModel.h"
 #include "topo/Distribution/Sha256.h"
 #include "topo/Platform/ToolResolution.h"
+#include "topo/Platform/TempFile.h"
 #include <cstdlib>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <regex>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace topo::check {
 namespace fs = std::filesystem;
@@ -43,10 +51,74 @@ bool windowsCommand() {
     return false;
 #endif
 }
+fs::path physicalInput(const fs::path& path) {
+    std::error_code error;
+    auto result = platform::canonicalPath(path, error);
+    if (error) throw fs::filesystem_error("cannot resolve analysis input", path, error);
+    return result;
+}
+fs::path weakPhysicalInput(const fs::path& path) {
+#ifndef _WIN32
+    return fs::weakly_canonical(path);
+#else
+    // MinGW weakly_canonical may retain a reparse-point spelling. Resolve
+    // existing paths through the native handle API; for a missing candidate,
+    // retain its suffix and resolve the closest existing parent. Do not fold
+    // '..' before asking Windows which object that spelling actually opens.
+    auto probe = fs::absolute(path);
+    if (probe.native().size() > 32768) throw std::runtime_error("analysis input path exceeds native limit");
+    std::vector<fs::path> missing;
+    for (unsigned depth = 0; depth < 4096; ++depth) {
+        std::error_code error;
+        auto resolved = platform::canonicalPath(probe, error);
+        if (!error) {
+            if (!missing.empty() && !fs::is_directory(resolved))
+                throw std::runtime_error("missing analysis input has a non-directory parent: " + probe.string());
+            for (auto it = missing.rbegin(); it != missing.rend(); ++it) resolved /= *it;
+            return resolved.lexically_normal();
+        }
+        // Only absent components may be reconstructed. Access failures,
+        // cyclic links and other reparse errors must not invent a cache key.
+        if (error != std::errc::no_such_file_or_directory)
+            throw fs::filesystem_error("cannot resolve analysis input", probe, error);
+        std::error_code redirectError;
+        const bool redirect = platform::isPathRedirect(probe, redirectError);
+        if (redirect)
+            throw std::runtime_error("unresolved reparse-point input requires uncached analysis: " + probe.string());
+        if (redirectError && redirectError != std::errc::no_such_file_or_directory)
+            throw fs::filesystem_error("cannot inspect analysis input redirection", probe, redirectError);
+        const auto parent = probe.parent_path();
+        if (parent.empty() || parent == probe)
+            throw fs::filesystem_error("analysis input has no existing parent", path, error);
+        missing.push_back(probe.filename());
+        probe = parent;
+    }
+    throw std::runtime_error("analysis input parent traversal exceeds limit");
+#endif
+}
+std::uintmax_t physicalLinkCount(const fs::path& path) {
+#ifndef _WIN32
+    return fs::hard_link_count(path);
+#else
+    const HANDLE handle = CreateFileW(path.c_str(), 0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        throw fs::filesystem_error("cannot inspect analysis input links", path,
+                                   std::error_code(static_cast<int>(GetLastError()), std::system_category()));
+    BY_HANDLE_FILE_INFORMATION information{};
+    const bool inspected = GetFileInformationByHandle(handle, &information) != 0;
+    const auto error = GetLastError();
+    CloseHandle(handle);
+    if (!inspected)
+        throw fs::filesystem_error("cannot inspect analysis input links", path,
+                                   std::error_code(static_cast<int>(error), std::system_category()));
+    return information.nNumberOfLinks;
+#endif
+}
 bool permittedInput(const std::string& path, const std::vector<std::string>& roots) {
-    const auto physical = fs::weakly_canonical(path);
+    const auto physical = weakPhysicalInput(path);
     for (const auto& root : roots) {
-        const auto relative = physical.lexically_relative(fs::canonical(root));
+        const auto relative = physical.lexically_relative(physicalInput(root));
         if (!relative.empty() && !relative.is_absolute() && *relative.begin() != "..") return true;
     }
     return false;
@@ -84,6 +156,12 @@ bool starts(const std::string& value, const std::string& prefix) { return value.
 void sanitize(CppCompileUnit& u, std::map<std::string, std::string>& digestCache, const CppCompileReadPolicy* policy) {
     if (u.originalArguments.empty()) throw std::runtime_error("empty compiler argv");
     auto compiler = fs::path(u.originalArguments[0]).filename().string();
+#ifdef _WIN32
+    // PATH/PATHEXT may return clang++.EXE. Windows filename matching is
+    // case-insensitive; preserve the original spelling for the actual input.
+    std::transform(compiler.begin(), compiler.end(), compiler.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+#endif
     if (compiler != "clang" && compiler != "clang++" && compiler != "clang.exe" && compiler != "clang++.exe" &&
         !starts(compiler, "clang-") && !starts(compiler, "clang++-"))
         throw std::runtime_error("unsupported compiler driver (Clang-compatible model required): " + compiler);
@@ -188,9 +266,13 @@ void sanitize(CppCompileUnit& u, std::map<std::string, std::string>& digestCache
 std::string cppCanonicalPath(const std::string& path, const std::string& directory) {
     fs::path p(path);
     if (p.is_relative()) p = (directory.empty() ? fs::current_path() : fs::path(directory)) / p;
+#ifndef _WIN32
     std::error_code ec;
-    auto real = fs::weakly_canonical(p, ec);
+    const auto real = fs::weakly_canonical(p, ec);
     return (ec ? p.lexically_normal() : real).string();
+#else
+    return weakPhysicalInput(p).string();
+#endif
 }
 std::vector<std::string> splitCppCommand(const std::string& text, bool windows, std::string& error) {
     std::vector<std::string> result;
@@ -237,9 +319,9 @@ std::vector<std::string> splitCppCommand(const std::string& text, bool windows, 
 CppCompileModel loadCppCompileModel(const std::string& path, const std::string& project, const CppCompileReadPolicy* policy) {
     CppCompileModel model;
     model.path = absoluteInput(path);
-    model.project = project.empty() ? fs::path(model.path).parent_path().string() : cppCanonicalPath(project);
     model.inputs.push_back(model.path);
     try {
+        model.project = project.empty() ? fs::path(model.path).parent_path().string() : cppCanonicalPath(project);
         requireModelInput(model.path, policy);
         const auto source = readBounded(model.path, maxBytes);
         model.inputDigests[model.path] = topo::dist::sha256Hex(source);
@@ -460,14 +542,15 @@ json cppAuditInputIdentity(const CppCompileModel& model, const CppCompileReadPol
             if (policy && std::find(policy->compilerFiles.begin(), policy->compilerFiles.end(), cppCanonicalPath(path)) == policy->compilerFiles.end())
                 requireModelInput(path, policy);
             if (candidates.size() >= 32768 && !candidates.contains(path)) throw std::runtime_error("header candidate limit exceeded");
-            const auto status = fs::status(path);
-            json state = {{"resolvedPath", fs::weakly_canonical(path).generic_string()}, {"kind", "missing"}};
+            const auto physical = weakPhysicalInput(path);
+            const auto status = fs::status(physical);
+            json state = {{"resolvedPath", physical.generic_string()}, {"kind", "missing"}};
             if (fs::is_regular_file(status)) state["kind"] = "file";
             else if (fs::is_directory(status)) state["kind"] = "directory";
             else if (fs::exists(status)) throw std::runtime_error("special file in include search: " + path);
             // weakly_canonical observes the longest existing parent even when
             // the candidate is absent, including intermediate symlink changes.
-            state["parentResolvedPath"] = fs::weakly_canonical(fs::path(path).parent_path()).generic_string();
+            state["parentResolvedPath"] = weakPhysicalInput(fs::path(path).parent_path()).generic_string();
             // Also bind dangling symlink spellings: weakly_canonical cannot
             // resolve their absent targets, but retargeting is still an input
             // change and must be visible before a target later appears.
@@ -476,11 +559,21 @@ json cppAuditInputIdentity(const CppCompileModel& model, const CppCompileReadPol
             for (const auto& component : fs::path(path).relative_path()) {
                 prefix /= component;
                 std::error_code error;
-                const auto linkStatus = fs::symlink_status(prefix, error);
+                const bool redirect = platform::isPathRedirect(prefix, error);
                 if (error && error != std::errc::no_such_file_or_directory && error != std::errc::not_a_directory)
                     throw std::runtime_error("cannot inspect include path: " + prefix.string());
-                if (fs::is_symlink(linkStatus)) state["symlinks"].push_back({{"path", prefix.generic_string()}, {"target", fs::read_symlink(prefix).generic_string()}});
-                if (!fs::exists(linkStatus)) break;
+                if (redirect) {
+#ifdef _WIN32
+                    // Bind the native physical destination of existing
+                    // reparse points. A dangling target is explicitly
+                    // uncached by weakPhysicalInput instead of being omitted.
+                    const auto target = physicalInput(prefix);
+#else
+                    const auto target = fs::read_symlink(prefix);
+#endif
+                    state["symlinks"].push_back({{"path", prefix.generic_string()}, {"target", target.generic_string()}});
+                }
+                if (error) break;
             }
             candidates[path] = state;
             return fs::is_regular_file(status);
@@ -493,14 +586,14 @@ json cppAuditInputIdentity(const CppCompileModel& model, const CppCompileReadPol
             if (scan) {
                 // pragma once observes physical file equivalence. Content and
                 // canonical paths alone cannot distinguish hardlink changes.
-                if (fs::hard_link_count(file) > 1) throw std::runtime_error("hardlinked preprocessing input requires uncached analysis: " + file);
+                if (physicalLinkCount(file) > 1) throw std::runtime_error("hardlinked preprocessing input requires uncached analysis: " + file);
                 contents = readBounded(file, 8 * 1024 * 1024);
                 bytes += contents.size();
                 if (++scannedFiles > 4096 || bytes > 64 * 1024 * 1024) throw std::runtime_error("header closure limit exceeded");
             }
             const auto digest = scan ? topo::dist::sha256Hex(contents) : topo::dist::sha256File(file);
             if (digest.empty()) throw std::runtime_error("cannot hash cache input: " + file);
-            inputs[file] = {{"resolvedPath", fs::canonical(file).generic_string()}, {"sha256", digest}};
+            inputs[file] = {{"resolvedPath", physicalInput(file).generic_string()}, {"sha256", digest}};
             return contents;
         };
         capture(model.path, false);
@@ -573,7 +666,7 @@ json cppAuditInputIdentity(const CppCompileModel& model, const CppCompileReadPol
                         if (lookup.quoted) {
                             search.insert(search.end(), quotedRoots.begin(), quotedRoots.end());
                             search.push_back(fs::path(file).parent_path().string());
-                            search.push_back(fs::canonical(file).parent_path().string());
+                            search.push_back(physicalInput(file).parent_path().string());
                         }
                         for (const auto& root : search) {
                             const auto candidate = absoluteInput(lookup.name, root);

@@ -64,14 +64,68 @@ void createAuditSymlink(fs::path target, fs::path link, bool directory = false) 
     else fs::create_symlink(target, link);
 #endif
 }
+bool removeAuditSymlink(fs::path link) {
+#ifdef _WIN32
+    link.make_preferred();
+    const DWORD attributes = GetFileAttributesW(link.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        const auto error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return false;
+        throw fs::filesystem_error("inspect audit symlink for removal", link,
+                                   std::error_code(static_cast<int>(error), std::system_category()));
+    }
+    if (!(attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        throw std::runtime_error("recorded audit symlink was replaced: " + link.string());
+    const bool removed = attributes & FILE_ATTRIBUTE_DIRECTORY ?
+        RemoveDirectoryW(link.c_str()) != 0 : DeleteFileW(link.c_str()) != 0;
+    if (!removed)
+        throw fs::filesystem_error("remove audit symlink", link,
+                                   std::error_code(static_cast<int>(GetLastError()), std::system_category()));
+    return true;
+#else
+    return fs::remove(link);
+#endif
+}
+bool containsInput(const json& identity, const fs::path& path) {
+    const auto expected = nativeKey(path);
+    for (const auto& [spelling, value] : identity.at("inputs").items()) {
+        (void)value;
+        if (nativeKey(spelling) == expected) return true;
+    }
+    return false;
+}
+std::string modelErrors(const CppCompileModel& model) {
+    std::string result;
+    for (const auto& error : model.errors) result += error + "\n";
+    for (const auto& unit : model.units)
+        for (const auto& error : unit.errors) result += unit.file + ": " + error + "\n";
+    return result;
+}
 struct Fixture {
     topo::platform::TempFile anchor{"cpp-audit-test", ".tmp"};
     fs::path root{anchor.path().string() + ".dir"};
+    std::vector<fs::path> symlinks;
     Fixture() { fs::create_directories(root); root = fs::canonical(root); }
     ~Fixture() {
         traceWindowsStage("cleanup begin " + root.string());
+#ifdef _WIN32
+        // MinGW remove_all can stall on dangling native reparse points.
+        // Remove only links created by this fixture before recursive cleanup.
+        bool linksRemoved = true;
+        for (auto it = symlinks.rbegin(); it != symlinks.rend(); ++it) {
+            try { removeAuditSymlink(*it); }
+            catch (const std::exception& error) {
+                ADD_FAILURE() << error.what(); linksRemoved = false;
+            }
+        }
+        if (!linksRemoved) return;
+#endif
         std::error_code ec; fs::remove_all(root, ec);
         traceWindowsStage("cleanup end " + root.string() + " error=" + ec.message());
+    }
+    void symlink(const fs::path& target, const fs::path& link, bool directory = false) {
+        symlinks.push_back(link);
+        createAuditSymlink(target, link, directory);
     }
     std::string write(const std::string& path, const std::string& data) {
         fs::create_directories((root / path).parent_path());
@@ -90,7 +144,7 @@ TEST(CppCompileModel, PreservesOrderDirectoryAndMultipleVariants) {
     for (const auto* define : {"-DA=1", "-DA=2"})
         entries.push_back({{"directory", f.root.string()}, {"file", "main.cpp"}, {"arguments", {"clang++", "-Ione", "-I", "two", define, "-UOLD", "-std=c++20", "-c", "main.cpp", "-o", "main.o", "--no-default-config"}}});
     auto model = loadCppCompileModel(f.write("compile_commands.json", entries.dump()), f.root.string());
-    ASSERT_TRUE(model.complete()); ASSERT_EQ(model.units.size(), 2u);
+    ASSERT_TRUE(model.complete()) << modelErrors(model); ASSERT_EQ(model.units.size(), 2u);
     EXPECT_NE(model.units[0].variant, model.units[1].variant);
     EXPECT_EQ(model.units[0].arguments[0], "-I" + (f.root / "one").string());
     EXPECT_EQ(model.units[0].arguments[1], "-I");
@@ -109,7 +163,7 @@ TEST(CppCompileModel, ResponseFilesExpandButCyclesAndPluginsFail) {
     Fixture f; f.write("main.cpp", "void run() {}\n");
     f.write("second.rsp", "-DFLAG=1"); f.write("first.rsp", "@second.rsp -I include");
     auto path = f.database({"clang++", "@first.rsp", "-c", "main.cpp"});
-    auto model = loadCppCompileModel(path); ASSERT_TRUE(model.complete()); EXPECT_GE(model.units[0].inputs.size(), 2u);
+    auto model = loadCppCompileModel(path); ASSERT_TRUE(model.complete()) << modelErrors(model); EXPECT_GE(model.units[0].inputs.size(), 2u);
     f.write("second.rsp", "@first.rsp"); EXPECT_FALSE(loadCppCompileModel(path).complete());
     f.write("second.rsp", "-Xclang -load -Xclang /tmp/evil.dylib"); EXPECT_FALSE(loadCppCompileModel(path).complete());
 }
@@ -120,14 +174,14 @@ TEST(CppCompileModel, PreservesSymlinkParentTraversalForModelSourceAndResponse) 
     f.write("left/options.rsp", "-DSELECTED=11");
     f.write("right/options.rsp", "-DSELECTED=22");
     fs::create_directories(f.root / "right/nested");
-    createAuditSymlink("../right/nested", f.root / "left/link", true);
+    f.symlink("../right/nested", f.root / "left/link", true);
     const auto spelling = (f.root / "left/link/..").string();
     const auto actualMain = nativeCanonical(fs::path(spelling) / "main.cpp");
     const auto selectedDirectory = actualMain.parent_path();
     const bool selectsLeft = selectedDirectory == nativeCanonical(f.root / "left");
     auto path = f.database({"clang++", "@left/link/../options.rsp", "-Ileft/link/..", "-c", "left/link/../main.cpp"}, "left/link/../main.cpp");
     auto model = loadCppCompileModel(path, f.root.string());
-    ASSERT_TRUE(model.complete());
+    ASSERT_TRUE(model.complete()) << modelErrors(model);
     EXPECT_EQ(model.units[0].file, spelling + "/main.cpp");
     EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), selectsLeft ? "-DSELECTED=11" : "-DSELECTED=22"), model.units[0].arguments.end());
     EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), "-I" + spelling), model.units[0].arguments.end());
@@ -147,7 +201,7 @@ TEST(CppCompileModel, AuthorizesPhysicalTargetBeforeSymlinkParentTraversalReads)
     f.write("inside/options.rsp", "-DWRONG=1");
     outside.write("options.rsp", "-DOUTSIDE=1");
     outside.write("nested/options.rsp", "-DOUTSIDE=1");
-    createAuditSymlink(outside.root / "nested", f.root / "inside/link", true);
+    f.symlink(outside.root / "nested", f.root / "inside/link", true);
     const auto compiler = topo::platform::findOnPath("clang++");
     ASSERT_FALSE(compiler.empty());
     CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
@@ -165,7 +219,7 @@ TEST(CppCompileModel, AuthorizesPhysicalTargetBeforeSymlinkParentTraversalReads)
             traceWindowsStage("read-policy model begin " + option);
             auto checked = loadCppCompileModel(path, f.root.string(), &policy);
             traceWindowsStage("read-policy model end " + option);
-            EXPECT_EQ(checked.complete(), !needsGrant);
+            EXPECT_EQ(checked.complete(), !needsGrant) << modelErrors(checked);
             ASSERT_EQ(checked.units.size(), 1u);
             if (needsGrant)
                 EXPECT_FALSE(checked.units[0].inputDigests.count((f.root / selectedInput).string()));
@@ -175,12 +229,26 @@ TEST(CppCompileModel, AuthorizesPhysicalTargetBeforeSymlinkParentTraversalReads)
             traceWindowsStage("granted model begin " + option);
             auto granted = loadCppCompileModel(path, f.root.string(), &policy);
             traceWindowsStage("granted model end " + option);
-            EXPECT_TRUE(granted.complete());
+            EXPECT_TRUE(granted.complete()) << modelErrors(granted);
             if (response) EXPECT_NE(std::find(granted.units[0].arguments.begin(), granted.units[0].arguments.end(),
                                              needsGrant ? "-DOUTSIDE=1" : "-DWRONG=1"), granted.units[0].arguments.end());
             policy.inputRoots.pop_back();
         }
     }
+}
+TEST(CppCompileModel, CompilerDriverSpellingFollowsHostFilenameCase) {
+    Fixture f;
+    f.write("main.cpp", "void run() {}\n");
+    const auto compiler = f.write("toolchain/bin/clang++.EXE", "model input only; never executed");
+    const auto path = f.database({compiler, "--no-default-config", "-c", "main.cpp"});
+    const auto model = loadCppCompileModel(path, f.root.string());
+#ifdef _WIN32
+    ASSERT_TRUE(model.complete()) << modelErrors(model);
+    EXPECT_EQ(model.units[0].originalArguments.front(), compiler);
+#else
+    EXPECT_FALSE(model.complete());
+    EXPECT_NE(modelErrors(model).find("unsupported compiler driver"), std::string::npos);
+#endif
 }
 TEST(CppCompileModel, UnknownCompilerAndFlagsDoNotLoseSemanticsSilently) {
     Fixture f; f.write("main.cpp", "void run() {}\n");
@@ -191,7 +259,7 @@ TEST(CppCompileModel, UnknownCompilerAndFlagsDoNotLoseSemanticsSilently) {
 TEST(CppCompileModel, BackendCodegenFlagsAreAcceptedWithoutAllowingFrontendPlugins) {
     Fixture f; f.write("main.cpp", "void run() {}\n");
     auto model = loadCppCompileModel(f.database({"clang++", "-emit-llvm", "-Xclang", "-disable-llvm-passes", "-fno-autolink", "-c", "main.cpp"}));
-    ASSERT_TRUE(model.complete());
+    ASSERT_TRUE(model.complete()) << modelErrors(model);
     EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), "-fno-autolink"), model.units[0].arguments.end());
     EXPECT_FALSE(loadCppCompileModel(f.database({"clang++", "-Xclang", "-load", "-Xclang", "plugin.dylib", "main.cpp"})).complete());
     EXPECT_FALSE(loadCppCompileModel(f.database({"clang++", "-Xclang", "-disable-llvm-passes=1", "main.cpp"})).complete());
@@ -215,7 +283,7 @@ TEST(CppCompileModel, AuditReadPolicyRejectsModelSelectedCompilerAndExternalInpu
     CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
     auto path = f.database({compiler, "--no-default-config", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iheaders", "-c", "main.cpp"});
     external.write("value.h", "#pragma once\n");
-    createAuditSymlink(external.root, f.root / "headers", true);
+    f.symlink(external.root, f.root / "headers", true);
     traceWindowsStage("external search-root model begin");
     EXPECT_FALSE(loadCppCompileModel(path, f.root.string(), &policy).complete());
     traceWindowsStage("external search-root model end");
@@ -223,7 +291,7 @@ TEST(CppCompileModel, AuditReadPolicyRejectsModelSelectedCompilerAndExternalInpu
     traceWindowsStage("granted search-root model begin");
     auto model = loadCppCompileModel(path, f.root.string(), &policy);
     traceWindowsStage("granted search-root model end");
-    ASSERT_TRUE(model.complete());
+    ASSERT_TRUE(model.complete()) << modelErrors(model);
     traceWindowsStage("granted search-root identity begin");
     EXPECT_TRUE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
     traceWindowsStage("granted search-root identity end");
@@ -297,7 +365,7 @@ TEST(CppAuditHeaderClosure, AuthorizedSearchRootsDoNotAuthorizeEscapingHeaderSym
     Fixture f, external;
     f.write("main.cpp", "#include \"value.h\"\nvoid run() {}\n");
     const auto file = external.write("value.h", "#pragma once\n");
-    createAuditSymlink(file, f.root / "value.h");
+    f.symlink(file, f.root / "value.h");
     auto compiler = topo::platform::findOnPath("clang++");
     ASSERT_FALSE(compiler.empty());
     CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
@@ -305,7 +373,7 @@ TEST(CppAuditHeaderClosure, AuthorizedSearchRootsDoNotAuthorizeEscapingHeaderSym
     traceWindowsStage("policy model begin " + path);
     const auto model = loadCppCompileModel(path, f.root.string(), &policy);
     traceWindowsStage("policy model end " + path);
-    ASSERT_TRUE(model.complete());
+    ASSERT_TRUE(model.complete()) << modelErrors(model);
     traceWindowsStage("denied identity begin");
     EXPECT_FALSE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
     traceWindowsStage("denied identity end");
@@ -355,7 +423,7 @@ TEST(CppAuditHeaderClosure, IncludesResponsesForcedHeadersAndQuoteOnlyRoots) {
     };
     auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
     for (const auto* name : {"outer.rsp", "inner.rsp", "forced.h", "macro.h", "macros.h", "quote/quote.h"})
-        EXPECT_TRUE(first["inputs"].contains(nativeKey(f.root / name))) << name;
+        EXPECT_TRUE(containsInput(first, f.root / name)) << name;
     f.write("macros.h", "#define EXTRA 2\n"); EXPECT_NE(identity(), first);
     f.write("macros.h", "#define EXTRA 1\n"); EXPECT_EQ(identity(), first);
     f.write("inner.rsp", "-std=c++17 -nostdinc -nostdinc++ -iquote quote -include forced.h -imacros macros.h -DOTHER=1");
@@ -383,7 +451,7 @@ TEST(CppAuditHeaderClosure, TracksSymlinkRetargetingAndMissingIntermediateParent
     Fixture f;
     f.write("main.cpp", "#include <value.h>\n#if __has_include(<nested/new.h>)\n#endif\n#if __has_include(<dangling/new.h>)\n#endif\n");
     f.write("a/value.h", "#define VALUE 1\n"); f.write("b/value.h", "#define VALUE 1\n");
-    createAuditSymlink(f.root / "a", f.root / "selected", true);
+    f.symlink(f.root / "a", f.root / "selected", true);
     auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iselected", "-c", "main.cpp"});
     auto identity = [&] {
         traceWindowsStage("identity begin " + path);
@@ -392,16 +460,33 @@ TEST(CppAuditHeaderClosure, TracksSymlinkRetargetingAndMissingIntermediateParent
         return result;
     };
     auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
-    fs::remove(f.root / "selected"); createAuditSymlink(f.root / "b", f.root / "selected", true);
+    removeAuditSymlink(f.root / "selected"); f.symlink(f.root / "b", f.root / "selected", true);
     EXPECT_NE(identity(), first);
     auto second = identity();
-    fs::create_directories(f.root / "empty"); createAuditSymlink(f.root / "empty", f.root / "b/nested", true);
+    fs::create_directories(f.root / "empty"); f.symlink(f.root / "empty", f.root / "b/nested", true);
     EXPECT_NE(identity(), second);
     auto third = identity(); f.write("empty/new.h", "#pragma once\n"); EXPECT_NE(identity(), third);
-    createAuditSymlink(f.root / "absent-a", f.root / "b/dangling", true);
-    auto dangling = identity(); ASSERT_TRUE(dangling["supported"].get<bool>()) << dangling.dump();
-    fs::remove(f.root / "b/dangling"); createAuditSymlink(f.root / "absent-b", f.root / "b/dangling", true);
+    f.symlink(f.root / "absent-a", f.root / "b/dangling", true);
+    const auto dangling = identity();
+#ifdef _WIN32
+    // Existing native reparse destinations participate in the identity;
+    // dangling destinations stay explicitly uncached until their link-text
+    // identity can be captured through a native Windows descriptor.
+    ASSERT_FALSE(dangling["supported"].get<bool>()) << dangling.dump();
+    EXPECT_NE(dangling.value("reason", "").find("unresolved reparse-point"), std::string::npos);
+#else
+    ASSERT_TRUE(dangling["supported"].get<bool>()) << dangling.dump();
+#endif
+    traceWindowsStage("remove dangling link begin");
+    removeAuditSymlink(f.root / "b/dangling"); f.symlink(f.root / "absent-b", f.root / "b/dangling", true);
+    traceWindowsStage("remove dangling link end");
+#ifdef _WIN32
+    const auto retargeted = identity();
+    EXPECT_FALSE(retargeted["supported"].get<bool>()) << retargeted.dump();
+    EXPECT_NE(retargeted.value("reason", "").find("unresolved reparse-point"), std::string::npos);
+#else
     EXPECT_NE(identity(), dangling);
+#endif
 }
 TEST(CppAuditHeaderClosure, PreservesSymlinkParentTraversalInLookupIdentity) {
     Fixture f;
@@ -409,7 +494,7 @@ TEST(CppAuditHeaderClosure, PreservesSymlinkParentTraversalInLookupIdentity) {
     f.write("left/value.h", "#define SELECTED 11\n");
     f.write("right/value.h", "#define SELECTED 22\n");
     fs::create_directories(f.root / "right/nested");
-    createAuditSymlink("../right/nested", f.root / "left/link", true);
+    f.symlink("../right/nested", f.root / "left/link", true);
     const auto actual = nativeCanonical(f.root / "left/link/../value.h");
     auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Ileft/link/..", "-c", "main.cpp"});
     auto model = loadCppCompileModel(path, f.root.string());
@@ -471,7 +556,7 @@ TEST(CppAuditMacroHeaderClosure, CapturesAllBranchAliasesAndUseSiteSearchCandida
     };
     const auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
     for (const auto* name : {"defs/headers.h", "late/value.h", "late/detail.h", "late/other.h"})
-        EXPECT_TRUE(first["inputs"].contains(nativeKey(f.root / name))) << name;
+        EXPECT_TRUE(containsInput(first, f.root / name)) << name;
     for (const auto* name : {"value.h", "early/value.h", "early/optional.h", "late/optional.h"})
         EXPECT_EQ(first.at("searchCandidates").at(nativeKey(f.root / name)).at("kind"), "missing") << name;
     EXPECT_FALSE(first["searchCandidates"].contains(nativeKey(f.root / "defs/value.h")));
@@ -533,12 +618,12 @@ TEST(CppAuditMacroHeaderClosure, EnforcesAuthorizedRootsForExpandedCandidates) {
     Fixture f, external;
     f.write("main.cpp", "#define HEADER \"selected.h\"\n#include HEADER\n");
     auto target = external.write("private.h", "#pragma once\n");
-    createAuditSymlink(target, f.root / "selected.h");
+    f.symlink(target, f.root / "selected.h");
     const auto compiler = topo::platform::findOnPath("clang++"); ASSERT_FALSE(compiler.empty());
     CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
     auto path = f.database({compiler, "--no-default-config", "-std=c++17", "-nostdinc", "-nostdinc++", "-c", "main.cpp"});
     traceWindowsStage("macro model begin");
-    const auto model = loadCppCompileModel(path, f.root.string(), &policy); ASSERT_TRUE(model.complete());
+    const auto model = loadCppCompileModel(path, f.root.string(), &policy); ASSERT_TRUE(model.complete()) << modelErrors(model);
     traceWindowsStage("macro model end");
     traceWindowsStage("macro denied identity begin");
     auto denied = cppAuditInputIdentity(model, &policy);
@@ -654,7 +739,7 @@ TEST(CppAudit, PreventsActualNativeGpuHelperExecution) {
     fs::permissions(helper, fs::perms::owner_read | fs::perms::owner_write | fs::perms::owner_exec);
     const auto path = f.database({compiler, "--no-default-config", "--target=amdgcn-amd-amdhsa", "-mcpu=native", "main.cpp"});
     const auto model = loadCppCompileModel(path, f.root.string());
-    ASSERT_TRUE(model.complete());
+    ASSERT_TRUE(model.complete()) << modelErrors(model);
     const auto& unit = model.units.front();
     auto args = unit.arguments; args.insert(args.begin(), compiler);
     std::vector<const char*> argv; for (const auto& arg : args) argv.push_back(arg.c_str());
@@ -678,7 +763,7 @@ TEST(CppAudit, RejectsGpuDiscoveryBeforeParsingAndExpandsResponseOrder) {
     f.write("gpu.rsp", "--target=amdgcn-amd-amdhsa -mcpu=gfx906 -mcpu=native");
     const auto path = f.database({"clang++", "@gpu.rsp", "main.cpp"});
     const auto model = loadCppCompileModel(path, f.root.string());
-    ASSERT_TRUE(model.complete()); ASSERT_EQ(model.units.size(), 1u);
+    ASSERT_TRUE(model.complete()) << modelErrors(model); ASSERT_EQ(model.units.size(), 1u);
     EXPECT_FALSE(cppAuditDriverRejection(model.units[0]).empty());
     const auto facts = auditCppCompileModel(path, f.root.string());
     EXPECT_FALSE(facts["complete"].get<bool>());
@@ -697,7 +782,7 @@ TEST(CppAudit, SearchAndParsedInputPathsFollowPhysicalSymlinkTraversal) {
     f.write("left/value.h", "inline int selected_left(){return 11;}\n#define selected selected_left\n");
     auto actual = f.write("right/value.h", "inline int selected_right(){return 22;}\n#define selected selected_right\n");
     fs::create_directories(f.root / "right/nested");
-    createAuditSymlink("../right/nested", f.root / "left/link", true);
+    f.symlink("../right/nested", f.root / "left/link", true);
     for (const auto& include : {std::string("<value.h>"), std::string("\"left/link/../value.h\"")}) {
         f.write("main.cpp", "#include " + include + "\nint run(){return selected();}\n");
         const auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Ileft/link/..", "-c", "main.cpp"});
@@ -805,7 +890,7 @@ TEST(CppAuditHeaderClosure, RealClangValuesFollowNegativeNextForcedResponseAndSy
     f.write("first/value.h", "#if __has_include_next(<value.h>)\n#include_next <value.h>\n#endif\n");
     f.write("second/value.h", "#include \"detail.h\"\n"); f.write("second/detail.h", "#define VALUE 7\n");
     f.write("forced.h", "#define FORCED 1\n");
-    createAuditSymlink(f.root / "second", f.root / "selected", true);
+    f.symlink(f.root / "second", f.root / "selected", true);
     f.write("args.rsp", "-std=c++17 -nostdinc -nostdinc++ -Iearly -Ifirst -Iselected -include forced.h");
     auto path = f.database({"clang++", "@args.rsp", "-c", "main.cpp"});
     json previous;
@@ -829,7 +914,7 @@ TEST(CppAuditHeaderClosure, RealClangValuesFollowNegativeNextForcedResponseAndSy
     f.write("forced.h", "#define FORCED 2\n"); observe(122);
     f.write("args.rsp", "-std=c++17 -nostdinc -nostdinc++ -Iselected -Iearly -Ifirst -include forced.h"); observe(110);
     f.write("third/value.h", "#define VALUE 30\n");
-    fs::remove(f.root / "selected"); createAuditSymlink(f.root / "third", f.root / "selected", true); observe(132);
+    removeAuditSymlink(f.root / "selected"); f.symlink(f.root / "third", f.root / "selected", true); observe(132);
 }
 
 TEST(CppAudit, BuiltinsDoNotCreatePhantomDependenciesAndSystemInputsHaveIdentity) {
