@@ -16,6 +16,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <map>
 #include <regex>
 #include <sstream>
 #include <unordered_map>
@@ -30,6 +31,7 @@ namespace {
 struct OriginalLocation {
     std::string file;
     int line = 0;
+    bool systemHeader = false;
 };
 
 std::string decodeLineMarkerFile(const std::string& escaped) {
@@ -70,8 +72,9 @@ std::unordered_map<int, OriginalLocation> buildLineMap(const std::string& ppOutp
 
     std::string currentFile;
     int currentOrigLine = 0;
+    bool currentSystemHeader = false;
 
-    static const std::regex lineDirective(R"re(^#\s+(\d+)\s+"((?:[^"\\]|\\.)*)")re");
+    static const std::regex lineDirective(R"re(^#\s+(\d+)\s+"((?:[^"\\]|\\.)*)"(.*)$)re");
 
     while (std::getline(stream, line)) {
         ++ppLineNum;
@@ -79,10 +82,17 @@ std::unordered_map<int, OriginalLocation> buildLineMap(const std::string& ppOutp
         if (std::regex_search(line, m, lineDirective)) {
             currentOrigLine = std::stoi(m[1].str());
             currentFile = decodeLineMarkerFile(m[2].str());
+            // Clang's marker flag 3 identifies system-header tokens regardless
+            // of SDK/install path. Expansion sites in project code have their
+            // own non-system markers, even when the macro came from a system header.
+            currentSystemHeader = false;
+            std::istringstream flags(m[3].str());
+            int flag;
+            while (flags >> flag) if (flag == 3) currentSystemHeader = true;
             continue;
         }
         if (!currentFile.empty()) {
-            map[ppLineNum] = {currentFile, currentOrigLine};
+            map[ppLineNum] = {currentFile, currentOrigLine, currentSystemHeader};
             ++currentOrigLine;
         }
     }
@@ -126,7 +136,8 @@ std::vector<DetectedCallSite> CppPreprocessorScanner::scanExpanded(const std::st
     return std::move(result.sites);
 }
 
-CppPreprocessorResult CppPreprocessorScanner::scanDetailed(const std::string& filePath) {
+CppPreprocessorResult CppPreprocessorScanner::scanDetailed(const std::string& filePath,
+                                                         bool macroExpansionsOnly) {
     CppPreprocessorResult output;
     try {
     for (const auto& ppOutput : preprocess(filePath)) {
@@ -148,23 +159,40 @@ CppPreprocessorResult CppPreprocessorScanner::scanDetailed(const std::string& fi
     {
         std::ofstream ofs(tmpFile.path());
         if (!ofs) throw std::runtime_error("cannot write preprocessor scan temporary file");
-        ofs << ppOutput;
+        // Preserve line numbers while excluding system implementations from
+        // lexical scope tracking and scanning. Project expansion sites survive.
+        std::istringstream lines(ppOutput);
+        std::string line;
+        int number = 0;
+        while (std::getline(lines, line)) {
+            const auto location = lineMap.find(++number);
+            if (location != lineMap.end() && !location->second.systemHeader) ofs << line;
+            ofs << '\n';
+        }
     }
     CppCallSiteExtractor extractor;
     auto ppSites = extractor.extractCallSites(tmpFile.path().string());
+    using SiteKey = std::pair<int, std::string>;
+    std::map<std::string, std::map<SiteKey, size_t>> unexpandedSites;
 
     // 4. Map results back to original locations and filter
     for (auto& site : ppSites) {
         auto it = lineMap.find(site.line);
-        if (it != lineMap.end()) {
-            // Only include sites from the original file (not system headers)
-            if (it->second.file == filePath ||
-                it->second.file.find("/usr/") == std::string::npos) {
-                site.file = it->second.file;
-                site.line = it->second.line;
-                results.push_back(std::move(site));
+        if (it == lineMap.end() || it->second.systemHeader) continue;
+        site.file = it->second.file;
+        site.line = it->second.line;
+        if (macroExpansionsOnly) {
+            auto [original, inserted] = unexpandedSites.try_emplace(site.file);
+            if (inserted) {
+                for (const auto& rawSite : extractor.extractCallSites(site.file))
+                    ++original->second[{rawSite.line, rawSite.calleePattern}];
             }
+            // Subtract occurrences, not whole lines or callee names: a direct
+            // call and a dangerous macro expansion can share both on one line.
+            auto& remaining = original->second[{site.line, site.calleePattern}];
+            if (remaining > 0) { --remaining; continue; }
         }
+        results.push_back(std::move(site));
     }
     // 5. Cleanup: TempFile's destructor removes the file.
 

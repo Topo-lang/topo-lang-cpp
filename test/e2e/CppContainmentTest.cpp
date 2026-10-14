@@ -2,11 +2,17 @@
 
 #include "CheckRunner.h"
 #include "ClangdBridge.h"
+#include "catalog/CppPreprocessorScanner.h"
+#include "topo/Platform/Process.h"
+#include "topo/Platform/ToolResolution.h"
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 using namespace topo;
 
@@ -17,7 +23,7 @@ static std::string fixtureDir(const char* name) {
 // Fixture for L2 (clangd-backed) deep containment tests.
 //
 // Skip semantics:
-//   - clangd missing on the host  -> SetUp() emits a single suite-level
+//   - clangd missing on the host -> the shared SetUp() marks each case
 //     GTEST_SKIP. Environment-only blockers belong here, not inside each
 //     test case (per project policy: per-case skips silently mask real
 //     failures).
@@ -25,12 +31,83 @@ static std::string fixtureDir(const char* name) {
 //     with a diagnostic dump, never skips.
 class CppContainmentL2 : public ::testing::Test {
 protected:
+    std::filesystem::path projectDir_;
+
     void SetUp() override {
         if (!topo::lsp::ClangdBridge::isClangdAvailable()) {
             GTEST_SKIP() << "clangd unavailable (bundled TOPO_LLVM_BINDIR missing"
                             " and not on PATH) — L2 deep containment tests need"
                             " clangd to run.";
         }
+    }
+
+    void TearDown() override {
+        if (!projectDir_.empty()) {
+            std::error_code error;
+            std::filesystem::remove_all(projectDir_, error);
+        }
+    }
+
+    void prepareFixture(const char* name) {
+        namespace fs = std::filesystem;
+        const auto temporary = fs::temp_directory_path() /
+            ("topo-containment-l2-" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+        ASSERT_TRUE(fs::create_directory(temporary));
+        projectDir_ = fs::canonical(temporary);
+        // Each case owns its compilation database and clangd cache. The checked-in
+        // fixtures remain unchanged even when CTest runs the cases concurrently.
+        for (const auto* directory : {"src", "topo"}) {
+            fs::copy(fs::path(fixtureDir(name)) / directory, projectDir_ / directory,
+                     fs::copy_options::recursive);
+        }
+        fs::copy_file(fs::path(fixtureDir(name)) / "Topo.toml", projectDir_ / "Topo.toml");
+        ASSERT_TRUE(fs::create_directory(projectDir_ / "build"));
+
+        const auto compiler = platform::findSpawnableOnPath(platform::llvmClangxx());
+        ASSERT_FALSE(compiler.empty()) << "L2 preprocessing requires the selected clang++";
+        // Explicitly model the environment that both clangd and the supplemental
+        // preprocessor see; implicit Homebrew Clang configs are not checked inputs.
+        std::vector<std::string> arguments{compiler, "--no-default-config", "-std=c++17"};
+#ifdef __APPLE__
+        const auto sdk = platform::runProcessCapture("/usr/bin/xcrun", {"--show-sdk-path"});
+        ASSERT_EQ(sdk.exitCode, 0) << sdk.stderrOutput;
+        auto sdkPath = sdk.stdoutOutput;
+        const auto last = sdkPath.find_last_not_of("\r\n");
+        ASSERT_NE(last, std::string::npos);
+        sdkPath.erase(last + 1);
+        ASSERT_TRUE(fs::is_directory(sdkPath)) << sdkPath;
+        arguments.insert(arguments.end(), {"-isysroot", sdkPath});
+#endif
+        const auto source = projectDir_ / "src/main.cpp";
+        arguments.insert(arguments.end(), {"-c", source.string()});
+        const auto commands = nlohmann::json::array({{
+            {"directory", projectDir_.string()}, {"file", source.string()},
+            {"arguments", arguments}
+        }});
+        std::ofstream output(projectDir_ / "build/compile_commands.json");
+        output << commands.dump(2) << '\n';
+        output.close();
+        ASSERT_TRUE(output.good());
+    }
+
+    void expectCompletedL2(CheckRunner& runner) {
+        const auto status = runner.run();
+        std::string diagnostics;
+        bool completed = false;
+        for (const auto& [name, result] : runner.lastResults()) {
+            for (const auto& diagnostic : result.diagnostics) {
+                diagnostics += name + ": " + diagnostic.message + "\n";
+                if (diagnostic.message.find("L2 deep analysis completed (1/1 file(s), ") == 0 &&
+                    diagnostic.message.find(", 0 preprocessing failure(s))") != std::string::npos) {
+                    completed = true;
+                }
+                EXPECT_NE(diagnostic.check, "containment-l2") << diagnostic.message;
+                EXPECT_NE(diagnostic.check, "containment-preprocessor") << diagnostic.message;
+            }
+        }
+        EXPECT_EQ(status, 0) << diagnostics;
+        EXPECT_TRUE(completed) << "Real L2 and preprocessor coverage must complete.\n" << diagnostics;
     }
 };
 
@@ -349,29 +426,30 @@ TEST(CppContainment, ContainmentBuiltinDangerous) {
 // --- L2 deep analysis ---
 //
 // L2 deep analysis requires clangd. Tests that flip cfg.deepMode = true use
-// the CppContainmentL2 fixture, which skips the entire suite once at SetUp
+// the CppContainmentL2 fixture, which skips each case from the shared SetUp
 // when clangd is missing. Per-case GTEST_SKIP for analysis failures is
 // prohibited (it silently masks regressions — see #1).
 
 TEST_F(CppContainmentL2, ContainmentL2SafeStdlib) {
+    ASSERT_NO_FATAL_FAILURE(prepareFixture("containment_l2_safe_stdlib"));
     CheckConfig cfg;
-    cfg.projectDir = fixtureDir("containment_l2_safe_stdlib");
+    cfg.projectDir = projectDir_.string();
     cfg.checkName = "containment";
     cfg.deepMode = true;
     CheckRunner runner(cfg);
     ASSERT_TRUE(runner.loadConfig());
-    // L2 or L1 fallback — safe code should pass either way
-    EXPECT_EQ(runner.run(), 0);
+    expectCompletedL2(runner);
 }
 
 TEST_F(CppContainmentL2, ContainmentL2UserFunctionSafe) {
+    ASSERT_NO_FATAL_FAILURE(prepareFixture("containment_l2_user_function_safe"));
     CheckConfig cfg;
-    cfg.projectDir = fixtureDir("containment_l2_user_function_safe");
+    cfg.projectDir = projectDir_.string();
     cfg.checkName = "containment";
     cfg.deepMode = true;
     CheckRunner runner(cfg);
     ASSERT_TRUE(runner.loadConfig());
-    EXPECT_EQ(runner.run(), 0);
+    expectCompletedL2(runner);
 }
 
 // L1-only smoke tests — no clangd dependency, so they stay outside the
@@ -402,66 +480,27 @@ TEST_F(CppContainmentL2, ContainmentL2DeepOnly) {
     // cannot, so the test requires working L2 analysis. A non-zero rc here is
     // a real failure — never a skip — and must dump diagnostics.
 
-    auto dir = fixtureDir("containment_l2_deep_only");
-
-    // Generate compile_commands.json so clangd can index the fixture.
-    {
-        namespace fs = std::filesystem;
-        fs::create_directories(fs::path(dir) / "build");
-        std::ofstream ccj(fs::path(dir) / "build" / "compile_commands.json");
-        ccj << "[{\"directory\": \"" << dir
-            << "\", \"file\": \"src/main.cpp\", \"arguments\": "
-            << "[\"clang++\", \"-std=c++17\", \"-c\", \"src/main.cpp\"]}]";
-    }
+    ASSERT_NO_FATAL_FAILURE(prepareFixture("containment_l2_deep_only"));
 
     CheckConfig cfg;
-    cfg.projectDir = dir;
+    cfg.projectDir = projectDir_.string();
     cfg.checkName = "containment";
     cfg.deepMode = true;
     CheckRunner runner(cfg);
     ASSERT_TRUE(runner.loadConfig());
 
-    int rc = runner.run();
-    if (rc != 0) {
-        // Dump every diagnostic so the failure is actionable. The most
-        // common cause is L2 silently falling through to L1 (which always
-        // misclassifies app::read() as POSIX read()), so the per-diagnostic
-        // text — including the "(level N)" tag and the caller token — is
-        // exactly what a regression investigator needs.
-        const auto& results = runner.lastResults();
-        std::cerr << "ContainmentL2DeepOnly diagnostics ("
-                  << results.size() << " check(s)):\n";
-        for (const auto& [name, res] : results) {
-            std::cerr << "  [" << name << "] errors=" << res.errorCount
-                      << " warnings=" << res.warningCount << "\n";
-            for (const auto& d : res.diagnostics) {
-                std::cerr << "    - " << d.check << ": " << d.message;
-                if (!d.file.empty()) {
-                    std::cerr << " [" << d.file;
-                    if (d.line > 0) std::cerr << ":" << d.line;
-                    std::cerr << "]";
-                }
-                std::cerr << "\n";
-            }
-        }
-    }
-    // L2 must classify app::read() as the user's .topo-declared function and
-    // return 0. Any other outcome is a regression — fail loudly.
-    EXPECT_EQ(rc, 0)
-        << "L2 deep containment failed for the app::read() vs POSIX read() "
-           "fixture. This usually means L2 silently fell through to L1 "
-           "(check for 'CppSafePatterns.toml not found' or 'clangd unavailable' "
-           "diagnostics above).";
+    expectCompletedL2(runner);
 }
 
 TEST_F(CppContainmentL2, ContainmentL2ExternalOk) {
+    ASSERT_NO_FATAL_FAILURE(prepareFixture("containment_l2_external_ok"));
     CheckConfig cfg;
-    cfg.projectDir = fixtureDir("containment_l2_external_ok");
+    cfg.projectDir = projectDir_.string();
     cfg.checkName = "containment";
     cfg.deepMode = true;
     CheckRunner runner(cfg);
     ASSERT_TRUE(runner.loadConfig());
-    EXPECT_EQ(runner.run(), 0);
+    expectCompletedL2(runner);
 }
 
 // Regression guard for L2 synthetic-caller attribution: the memory
@@ -473,13 +512,50 @@ TEST_F(CppContainmentL2, ContainmentL2ExternalOk) {
 // fire.  Without the fix, the synthetic `<l2:...>` caller never matches any
 // external name and the run reports false-positive violations.
 TEST_F(CppContainmentL2, ContainmentL2MemoryExternalOk) {
+    ASSERT_NO_FATAL_FAILURE(prepareFixture("containment_memory_external_ok"));
     CheckConfig cfg;
-    cfg.projectDir = fixtureDir("containment_memory_external_ok");
+    cfg.projectDir = projectDir_.string();
     cfg.checkName = "containment";
     cfg.deepMode = true;
     CheckRunner runner(cfg);
     ASSERT_TRUE(runner.loadConfig());
-    EXPECT_EQ(runner.run(), 0);
+    expectCompletedL2(runner);
+}
+
+TEST_F(CppContainmentL2, PreprocessorPreservesSystemHeaderMacroExpansion) {
+    ASSERT_NO_FATAL_FAILURE(prepareFixture("containment_l2_user_function_safe"));
+    std::ofstream(projectDir_ / "src/system.h") <<
+        "#pragma GCC system_header\n"
+        "inline void header_impl() { system(\"header implementation\"); }\n"
+        "#define DANGER() system(\"expanded call\")\n";
+    // Both occurrences share a line and a name. Removing the original call
+    // must preserve the separate macro-generated call at its expansion site.
+    std::ofstream(projectDir_ / "src/main.cpp") <<
+        "#include \"system.h\"\nvoid run() { system(\"direct\"); DANGER(); }\n";
+    check::CppPreprocessorScanner scanner;
+    scanner.setBuildDir((projectDir_ / "build").string());
+    const auto result = scanner.scanDetailed((projectDir_ / "src/main.cpp").string(), true);
+    ASSERT_TRUE(result.complete) << (result.errors.empty() ? "" : result.errors.front());
+    ASSERT_EQ(result.sites.size(), 1u);
+    EXPECT_EQ(result.sites.front().calleePattern, "system");
+    EXPECT_EQ(result.sites.front().file, (projectDir_ / "src/main.cpp").string());
+    EXPECT_EQ(result.sites.front().line, 2);
+}
+
+TEST_F(CppContainmentL2, PreprocessorLeavesOriginalCallsToSemanticAnalysis) {
+    ASSERT_NO_FATAL_FAILURE(prepareFixture("containment_l2_deep_only"));
+    std::ofstream(projectDir_ / "src/system.h") <<
+        "#pragma GCC system_header\n"
+        "inline void header_impl() { system(\"header implementation\"); }\n";
+    std::ofstream(projectDir_ / "src/main.cpp") <<
+        "#include \"system.h\"\nnamespace app {\n"
+        "int read(int value) { return value; }\n"
+        "int run(int value) { return read(value); }\n}\n";
+    check::CppPreprocessorScanner scanner;
+    scanner.setBuildDir((projectDir_ / "build").string());
+    const auto result = scanner.scanDetailed((projectDir_ / "src/main.cpp").string(), true);
+    ASSERT_TRUE(result.complete) << (result.errors.empty() ? "" : result.errors.front());
+    EXPECT_TRUE(result.sites.empty());
 }
 
 // --- Allman brace style ---

@@ -74,7 +74,7 @@ CheckResult CppSafetyAnalyzer::analyze(const SymbolTable& symbols,
         CppPreprocessorScanner ppScanner;
         ppScanner.setBuildDir(buildDir_);
         for (const auto& file : sourceFiles) {
-            auto scan = ppScanner.scanDetailed(file);
+            auto scan = ppScanner.scanDetailed(file, true);
             callSites.insert(callSites.end(), scan.sites.begin(), scan.sites.end());
             if (!scan.complete) ++preprocessorFailures;
             for (const auto& error : scan.errors) {

@@ -27,7 +27,10 @@ public:
     /// Scan a source file through the preprocessor and detect dangerous patterns.
     /// Returns call sites with original source locations (not preprocessed locations).
     std::vector<DetectedCallSite> scanExpanded(const std::string& filePath);
-    CppPreprocessorResult scanDetailed(const std::string& filePath);
+    /// L2 already resolves unexpanded calls semantically. In macro-only mode,
+    /// retain newly expanded patterns without reclassifying those original calls.
+    CppPreprocessorResult scanDetailed(const std::string& filePath,
+                                      bool macroExpansionsOnly = false);
 
 private:
     /// Run clang -E on the file, return preprocessed output.
