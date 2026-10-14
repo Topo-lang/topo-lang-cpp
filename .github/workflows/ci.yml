@@ -59,30 +59,43 @@ jobs:
         with:
           vcpkgGitCommitId: "56bb2411609227288b70117ead2c47585ba07713"
 
-      # Single cache slot for both upstream installs (topo-core + topo-lang)
-      # since their refs move together.
+      - name: Resolve upstream commit identities
+        id: upstream-revisions
+        uses: actions/github-script@v8
+        with:
+          script: |
+            for (const [repo, ref, output] of [
+              ['topo-core', process.env.TOPO_CORE_REF, 'core-sha'],
+              ['topo-lang', process.env.TOPO_LANG_REF, 'lang-sha'],
+            ]) {
+              const { data } = await github.rest.repos.getCommit({ owner: 'Topo-lang', repo, ref });
+              if (!/^[0-9a-f]{40}$/.test(data.sha)) {
+                throw new Error(`Invalid commit identity for ${repo}`);
+              }
+              core.setOutput(output, data.sha);
+              core.info(`${repo}@${ref} resolved to ${data.sha}`);
+            }
+
+      # A branch or tag can move. Cache only the exact resolved commit pair,
+      # and build those same commits when the install cache is absent.
       - name: Cache upstream installs
         id: upstream-cache
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/topo-install
-          # v3: topo-core BuildConfig gained cppFlags ([build.cpp].flags),
-          # consumed by CppDriver/NinjaGen here; the upstream cache is keyed
-          # on a literal ref, so bump to force a fresh topo-core rebuild that
-          # carries the new header — a stale install lacks the field and this
-          # repo no longer compiles.
-          # v4: the topo-core dev branch TIP advanced (fix batch merged to
-          # dev); the key interpolates the ref, not the ref's content, so a
-          # cache saved against the pre-merge dev would keep serving the
-          # fix-less core. Bump to force the fresh clone.
-          key: topo-upstream-${{ env.TOPO_CORE_REF }}-${{ env.TOPO_LANG_REF }}-${{ matrix.os }}-v5-audit
+          key: topo-upstream-${{ steps.upstream-revisions.outputs.core-sha }}-${{ steps.upstream-revisions.outputs.lang-sha }}-${{ matrix.os }}-v6-audit
 
       - name: Build & install topo-core (zero-LLVM, lang-less)
         if: steps.upstream-cache.outputs.cache-hit != 'true'
+        env:
+          UPSTREAM_SHA: ${{ steps.upstream-revisions.outputs.core-sha }}
         run: |
-          git clone --depth 1 --branch "${TOPO_CORE_REF}" \
-              https://github.com/topo-lang/topo-core.git \
-              "${RUNNER_TEMP}/topo-core-src"
+          git init "${RUNNER_TEMP}/topo-core-src"
+          git -C "${RUNNER_TEMP}/topo-core-src" remote add origin \
+              https://github.com/topo-lang/topo-core.git
+          git -C "${RUNNER_TEMP}/topo-core-src" fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C "${RUNNER_TEMP}/topo-core-src" checkout --detach FETCH_HEAD
+          test "$(git -C "${RUNNER_TEMP}/topo-core-src" rev-parse HEAD)" = "$UPSTREAM_SHA"
           cmake -S "${RUNNER_TEMP}/topo-core-src" \
                 -B "${RUNNER_TEMP}/topo-core-build" \
                 -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -92,10 +105,15 @@ jobs:
 
       - name: Build & install topo-lang
         if: steps.upstream-cache.outputs.cache-hit != 'true'
+        env:
+          UPSTREAM_SHA: ${{ steps.upstream-revisions.outputs.lang-sha }}
         run: |
-          git clone --depth 1 --branch "${TOPO_LANG_REF}" \
-              https://github.com/topo-lang/topo-lang.git \
-              "${RUNNER_TEMP}/topo-lang-src"
+          git init "${RUNNER_TEMP}/topo-lang-src"
+          git -C "${RUNNER_TEMP}/topo-lang-src" remote add origin \
+              https://github.com/topo-lang/topo-lang.git
+          git -C "${RUNNER_TEMP}/topo-lang-src" fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C "${RUNNER_TEMP}/topo-lang-src" checkout --detach FETCH_HEAD
+          test "$(git -C "${RUNNER_TEMP}/topo-lang-src" rev-parse HEAD)" = "$UPSTREAM_SHA"
           cmake -S "${RUNNER_TEMP}/topo-lang-src" \
                 -B "${RUNNER_TEMP}/topo-lang-build" \
                 -G Ninja -DCMAKE_BUILD_TYPE=Release \
