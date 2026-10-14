@@ -52,6 +52,16 @@ target_include_directories(topo-cpp-audit-filesystem-tests SYSTEM PRIVATE ${LLVM
 # provide the optional monolithic LLVM target or a library named libLLVM.
 target_link_libraries(topo-cpp-audit-filesystem-tests PRIVATE LLVMSupport GTest::gtest_main)
 target_compile_features(topo-cpp-audit-filesystem-tests PRIVATE cxx_std_17)
+# This target subclasses LLVM VFS and buffer interfaces. Its RTTI mode must
+# match the selected LLVM package or the derived classes reference absent
+# base typeinfo in distributions built with LLVM_ENABLE_RTTI=OFF.
+if(NOT LLVM_ENABLE_RTTI)
+    if(MSVC)
+        target_compile_options(topo-cpp-audit-filesystem-tests PRIVATE /GR-)
+    else()
+        target_compile_options(topo-cpp-audit-filesystem-tests PRIVATE -fno-rtti)
+    endif()
+endif()
 gtest_discover_tests(topo-cpp-audit-filesystem-tests
     TEST_PREFIX "cpp-audit-filesystem." DISCOVERY_TIMEOUT 30
     PROPERTIES LABELS "toolchain;lang-cpp;audit" TIMEOUT 60)

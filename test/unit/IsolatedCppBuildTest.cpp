@@ -42,6 +42,7 @@ TEST_F(IsolatedCppBuildTest, WrongCompilerIdentityFailsBeforeBuild) {
     EXPECT_NE(topo::build::buildIsolatedCpp(cfg,error).exitCode,0);EXPECT_FALSE(error.empty());
     EXPECT_FALSE(fs::exists(cfg.outputPath));
 }
+#if defined(__APPLE__) && defined(__aarch64__)
 TEST_F(IsolatedCppBuildTest, RealSandboxBuildBindsActualExportsAndBytes) {
     if(!configured())GTEST_SKIP()<<"set TOPO_TEST_ISOLATED_CLANG and TOPO_TEST_ISOLATED_LD to trusted macOS ARM64 tools";
     std::string error;const auto original=topo::dist::sha256File(cfg.sources.front());
@@ -121,4 +122,13 @@ TEST_F(IsolatedCppBuildTest, KernelDeniesWritesAndNetworkWithRunnableControlProb
     EXPECT_NE(protectedRun.stdoutOutput.find("networkDenied=1"),std::string::npos);
     EXPECT_EQ(topo::dist::sha256File(sentinel.string()),digest);
 }
+#else
+TEST_F(IsolatedCppBuildTest, UnsupportedPlatformRejectsBeforeCompilerExecution) {
+    std::string error;
+    EXPECT_NE(topo::build::buildIsolatedCpp(cfg,error).exitCode,0);
+    EXPECT_EQ(error,"isolated-build currently requires macOS ARM64");
+    EXPECT_FALSE(fs::exists(cfg.outputPath));
+    EXPECT_FALSE(fs::exists(cfg.evidenceOutput));
+}
+#endif
 }

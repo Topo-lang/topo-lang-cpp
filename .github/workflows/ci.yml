@@ -245,6 +245,12 @@ jobs:
           # TOPO_LLVM_DIR lets topo-core's BYO resolver locate clangd so the L2
           # containment cases RUN instead of GTEST_SKIP (a skip is not a pass).
           echo "TOPO_LLVM_DIR=${BREW_LLVM}" >> "$GITHUB_ENV"
+          test -x "${BREW_LLVM}/bin/clang++"
+          echo "TOPO_TEST_ISOLATED_CLANG=${BREW_LLVM}/bin/clang++" >> "$GITHUB_ENV"
+          ISOLATED_LD="$(/usr/bin/xcrun --find ld)"
+          test -x "$ISOLATED_LD"
+          test -d /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+          echo "TOPO_TEST_ISOLATED_LD=${ISOLATED_LD}" >> "$GITHUB_ENV"
           echo "${BREW_LLVM}/bin" >> "$GITHUB_PATH"
           # Homebrew now distributes LLDB separately. Its public API is
           # independent of the LLVM 22 analysis/extractor toolchain.
@@ -270,6 +276,8 @@ jobs:
           echo "LLVM_DIR=${LLVM_ROOT}/lib/cmake/llvm"   >> "$GITHUB_ENV"
           echo "Clang_DIR=${LLVM_ROOT}/lib/cmake/clang" >> "$GITHUB_ENV"
           echo "TOPO_LLVM_DIR=${LLVM_ROOT}" >> "$GITHUB_ENV"
+          test -x "${LLVM_ROOT}/bin/clang++"
+          echo "TOPO_TEST_ISOLATED_CLANG=${LLVM_ROOT}/bin/clang++" >> "$GITHUB_ENV"
           echo "${LLVM_ROOT}/bin" >> "$GITHUB_PATH"
           # liblldb-22 (topo-debug-cpp link dep) needs libpython3.11, absent on
           # ubuntu-noble — pull from deadsnakes (mirrors topo-llvm's bench job).
@@ -525,3 +533,26 @@ jobs:
             CppContainmentL2.ContainmentL2DeepOnly \
             CppContainmentL2.ContainmentL2ExternalOk \
             CppContainmentL2.ContainmentL2MemoryExternalOk
+
+      - name: Assert real C++ command and cache evidence ran
+        run: |
+          cases=(
+            CppCommandModelTest.ActualCompilerExecutesTheCheckedArgumentVectors
+            CppEvidenceCacheTest.OrdinaryNinjaWarmHitAndSourceInvalidationRemainFunctional
+            CppEvidenceCacheTest.EvidenceRequestAndRecorderEachForceActualCompilation
+            CppEvidenceCacheTest.IncrementalEntryPointRejectsForgedCheckedModelBeforeCompiling
+          )
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cases+=(
+              IsolatedCppBuildTest.RealSandboxBuildBindsActualExportsAndBytes
+              IsolatedCppBuildTest.NativeCallsOutsideScalarProfileAreRejected
+              IsolatedCppBuildTest.FreshBuildDirectoriesReproduceTheSamePayload
+              IsolatedCppBuildTest.InlineAssemblyIsRejectedBeforeLink
+              IsolatedCppBuildTest.KernelDeniesWritesAndNetworkWithRunnableControlProbe
+            )
+          else
+            # The formal isolated builder supports macOS ARM64. Other platforms
+            # execute its rejection contract alongside real compile/cache cases.
+            cases+=(IsolatedCppBuildTest.UnsupportedPlatformRejectsBeforeCompilerExecution)
+          fi
+          bash .github/scripts/assert-live-cases.sh strict topo-cpp-isolated-build-tests "${cases[@]}"
