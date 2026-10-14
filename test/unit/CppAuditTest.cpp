@@ -709,20 +709,40 @@ TEST(CppPreprocessor, DecodesEscapedLineMarkerFilenamesFromRealClang) {
                 file << "#line 42 " << json(expected).dump() << newline
                      << "void run() { system(\"x\"); }" << newline;
             }
-#ifdef _WIN32
-            // Independently verify that the native compiler supplies the CRLF
-            // stream this scanner must map, including the escaped #line name.
-            const auto raw = topo::platform::runProcessCaptureWithTimeout(
-                clang, {"-E", "-x", "c++", "-std=c++17", source}, 20000);
-            ASSERT_EQ(raw.exitCode, 0) << raw.stderrOutput;
-            ASSERT_NE(raw.stdoutOutput.find("\r\n"), std::string::npos);
-#endif
             CppPreprocessorScanner scanner; scanner.setClangPath(clang);
             const auto result = scanner.scanDetailed(source);
             ASSERT_TRUE(result.complete) << (result.errors.empty() ? "" : result.errors.front());
             ASSERT_FALSE(result.sites.empty());
             EXPECT_EQ(result.sites.front().file, expected);
             EXPECT_EQ(result.sites.front().line, 42);
+        }
+    }
+}
+
+TEST(CppPreprocessor, MapsBothPhysicalOutputEndingsAndFiltersSystemHeaders) {
+    Fixture f;
+    for (const std::string& newline : {std::string("\n"), std::string("\r\n")}) {
+        SCOPED_TRACE("output newline " + json(newline).dump());
+        for (const std::string& expected : {std::string(R"(C:\audit\quoted"unit.cpp)"), std::string("tab\tfile.cpp")}) {
+            SCOPED_TRACE(json(expected).dump());
+            const auto source = (f.root / "preprocessed.cpp").string();
+            const auto text = "# 1 \"system.h\" 3" + newline +
+                "void ignored() { system(\"header\"); }" + newline +
+                "# 42 " + json(expected).dump() + newline +
+                "void run() { system(\"project\"); }" + newline;
+            { std::ofstream file(source, std::ios::binary); file << text; }
+            const auto raw = topo::platform::runProcessCaptureWithTimeout(
+                TOPO_CPP_PREPROCESSOR_OUTPUT_FIXTURE, {"-E", source}, 20000);
+            ASSERT_EQ(raw.exitCode, 0) << raw.stderrOutput;
+            ASSERT_EQ(raw.stdoutOutput, text);
+            CppPreprocessorScanner scanner;
+            scanner.setClangPath(TOPO_CPP_PREPROCESSOR_OUTPUT_FIXTURE);
+            const auto result = scanner.scanDetailed(source);
+            ASSERT_TRUE(result.complete) << (result.errors.empty() ? "" : result.errors.front());
+            ASSERT_EQ(result.sites.size(), 1u);
+            EXPECT_EQ(result.sites.front().file, expected);
+            EXPECT_EQ(result.sites.front().line, 42);
+            EXPECT_EQ(result.sites.front().calleePattern, "system");
         }
     }
 }

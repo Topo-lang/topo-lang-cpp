@@ -1,6 +1,9 @@
 # Lang type tests (header-only, no LLVM)
 add_subdirectory(isolated-build)
 
+add_executable(topo-cpp-preprocessor-output-fixture unit/CppPreprocessorOutputFixture.cpp)
+target_compile_features(topo-cpp-preprocessor-output-fixture PRIVATE cxx_std_17)
+
 add_executable(topo-lang-cpp-tests
     unit/WholeExternalTypeTest.cpp
     unit/RuntimeTypesTest.cpp
@@ -20,6 +23,9 @@ target_link_libraries(topo-lang-cpp-tests PRIVATE
     TopoCppAnalysis TopoCppTranspile
     GTest::gtest_main
 )
+target_compile_definitions(topo-lang-cpp-tests PRIVATE
+    TOPO_CPP_PREPROCESSOR_OUTPUT_FIXTURE="$<TARGET_FILE:topo-cpp-preprocessor-output-fixture>")
+add_dependencies(topo-lang-cpp-tests topo-cpp-preprocessor-output-fixture)
 # Anchored on this test dir's parent (the topo-lang-cpp source root) so the
 # paths resolve in BOTH the meta build (PROJECT_SOURCE_DIR = meta root) and the
 # standalone build (PROJECT_SOURCE_DIR = clone root). The previous
@@ -152,6 +158,9 @@ add_executable(topo-cpp-audit-semantic-tests
     ../topo-check/extractor/CppAuditDriver.cpp
     ../topo-check/extractor/CppAuditExtractor.cpp)
 target_compile_definitions(topo-cpp-audit-semantic-tests PRIVATE TOPO_CPP_AUDIT_LIBCLANG=1)
+target_compile_definitions(topo-cpp-audit-semantic-tests PRIVATE
+    TOPO_CPP_PREPROCESSOR_OUTPUT_FIXTURE="$<TARGET_FILE:topo-cpp-preprocessor-output-fixture>")
+add_dependencies(topo-cpp-audit-semantic-tests topo-cpp-preprocessor-output-fixture)
 target_include_directories(topo-cpp-audit-semantic-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../topo-check
     ${CMAKE_CURRENT_SOURCE_DIR}/../topo-check/extractor)
