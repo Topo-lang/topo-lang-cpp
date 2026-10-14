@@ -32,6 +32,36 @@ struct OriginalLocation {
     int line = 0;
 };
 
+std::string decodeLineMarkerFile(const std::string& escaped) {
+    std::string file;
+    for (size_t i = 0; i < escaped.size(); ++i) {
+        if (escaped[i] != '\\') { file += escaped[i]; continue; }
+        if (++i == escaped.size()) throw std::runtime_error("unfinished escape in preprocessor filename");
+        const char c = escaped[i];
+        if (c >= '0' && c <= '7') {
+            unsigned byte = static_cast<unsigned>(c - '0');
+            for (int digit = 1; digit < 3 && i + 1 < escaped.size() &&
+                 escaped[i + 1] >= '0' && escaped[i + 1] <= '7'; ++digit)
+                byte = byte * 8 + static_cast<unsigned>(escaped[++i] - '0');
+            if (byte == 0 || byte > 255) throw std::runtime_error("invalid byte in preprocessor filename");
+            file += static_cast<char>(byte);
+        } else {
+            switch (c) {
+            case '\\': case '"': case '\'': case '?': file += c; break;
+            case 'a': file += '\a'; break;
+            case 'b': file += '\b'; break;
+            case 'f': file += '\f'; break;
+            case 'n': file += '\n'; break;
+            case 'r': file += '\r'; break;
+            case 't': file += '\t'; break;
+            case 'v': file += '\v'; break;
+            default: throw std::runtime_error("unsupported escape in preprocessor filename");
+            }
+        }
+    }
+    return file;
+}
+
 std::unordered_map<int, OriginalLocation> buildLineMap(const std::string& ppOutput) {
     std::unordered_map<int, OriginalLocation> map;
     std::istringstream stream(ppOutput);
@@ -41,14 +71,14 @@ std::unordered_map<int, OriginalLocation> buildLineMap(const std::string& ppOutp
     std::string currentFile;
     int currentOrigLine = 0;
 
-    static const std::regex lineDirective(R"re(^#\s+(\d+)\s+"([^"]+)")re");
+    static const std::regex lineDirective(R"re(^#\s+(\d+)\s+"((?:[^"\\]|\\.)*)")re");
 
     while (std::getline(stream, line)) {
         ++ppLineNum;
         std::smatch m;
         if (std::regex_search(line, m, lineDirective)) {
             currentOrigLine = std::stoi(m[1].str());
-            currentFile = m[2].str();
+            currentFile = decodeLineMarkerFile(m[2].str());
             continue;
         }
         if (!currentFile.empty()) {

@@ -280,11 +280,20 @@ namespace {
 // including inactive branches and lower-priority candidates. It never infers dependency closure
 // merely from the headers Clang opened on a previous run.
 std::string cachePreprocessingText(std::string text) {
-    std::string spliced;
+    // Translation phase one normalizes physical line endings before phase
+    // two removes escaped newlines. Input digests still bind the original bytes.
+    std::string normalized;
+    normalized.reserve(text.size());
     for (size_t i = 0; i < text.size(); ++i) {
-        if (text[i] == '\\' && i + 1 < text.size() && text[i + 1] == '\n') { ++i; continue; }
-        if (text[i] == '\\' && i + 2 < text.size() && text[i + 1] == '\r' && text[i + 2] == '\n') { i += 2; continue; }
-        spliced += text[i];
+        if (text[i] == '\r') {
+            if (i + 1 < text.size() && text[i + 1] == '\n') ++i;
+            normalized += '\n';
+        } else normalized += text[i];
+    }
+    std::string spliced;
+    for (size_t i = 0; i < normalized.size(); ++i) {
+        if (normalized[i] == '\\' && i + 1 < normalized.size() && normalized[i + 1] == '\n') { ++i; continue; }
+        spliced += normalized[i];
     }
     if (spliced.find_first_of("%?\\") != std::string::npos || spliced.find('\0') != std::string::npos ||
         spliced.find("import") != std::string::npos || spliced.find("R\"") != std::string::npos || spliced.find("_Pragma") != std::string::npos ||
