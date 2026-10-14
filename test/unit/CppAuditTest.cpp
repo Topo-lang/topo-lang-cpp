@@ -9,6 +9,7 @@
 #include <clang-c/Index.h>
 #endif
 #include "topo/Platform/TempFile.h"
+#include "topo/Platform/Process.h"
 #include "topo/Platform/ToolResolution.h"
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -698,16 +699,31 @@ TEST(CppPreprocessor, DecodesEscapedLineMarkerFilenamesFromRealClang) {
     const auto clang = topo::platform::findOnPath("clang++");
     ASSERT_FALSE(clang.empty());
     Fixture f;
-    for (const std::string& expected : {std::string(R"(C:\audit\quoted"unit.cpp)"), std::string("tab\tfile.cpp")}) {
-        SCOPED_TRACE(json(expected).dump());
-        const auto source = f.write("main.cpp", "#line 42 " + json(expected).dump() +
-            "\nvoid run() { system(\"x\"); }\n");
-        CppPreprocessorScanner scanner; scanner.setClangPath(clang);
-        const auto result = scanner.scanDetailed(source);
-        ASSERT_TRUE(result.complete) << (result.errors.empty() ? "" : result.errors.front());
-        ASSERT_FALSE(result.sites.empty());
-        EXPECT_EQ(result.sites.front().file, expected);
-        EXPECT_EQ(result.sites.front().line, 42);
+    for (const std::string& newline : {std::string("\n"), std::string("\r\n")}) {
+        SCOPED_TRACE("source newline " + json(newline).dump());
+        for (const std::string& expected : {std::string(R"(C:\audit\quoted"unit.cpp)"), std::string("tab\tfile.cpp")}) {
+            SCOPED_TRACE(json(expected).dump());
+            const auto source = (f.root / "main.cpp").string();
+            {
+                std::ofstream file(source, std::ios::binary);
+                file << "#line 42 " << json(expected).dump() << newline
+                     << "void run() { system(\"x\"); }" << newline;
+            }
+#ifdef _WIN32
+            // Independently verify that the native compiler supplies the CRLF
+            // stream this scanner must map, including the escaped #line name.
+            const auto raw = topo::platform::runProcessCaptureWithTimeout(
+                clang, {"-E", "-x", "c++", "-std=c++17", source}, 20000);
+            ASSERT_EQ(raw.exitCode, 0) << raw.stderrOutput;
+            ASSERT_NE(raw.stdoutOutput.find("\r\n"), std::string::npos);
+#endif
+            CppPreprocessorScanner scanner; scanner.setClangPath(clang);
+            const auto result = scanner.scanDetailed(source);
+            ASSERT_TRUE(result.complete) << (result.errors.empty() ? "" : result.errors.front());
+            ASSERT_FALSE(result.sites.empty());
+            EXPECT_EQ(result.sites.front().file, expected);
+            EXPECT_EQ(result.sites.front().line, 42);
+        }
     }
 }
 
@@ -721,7 +737,7 @@ TEST(CppPreprocessor, UsesCompileDatabaseMacrosAndReportsRealFailure) {
     auto result = scanner.scanDetailed(source);
     ASSERT_TRUE(result.complete) << (result.errors.empty() ? "" : result.errors.front());
     ASSERT_FALSE(result.sites.empty()); EXPECT_EQ(result.sites.front().calleePattern, "system");
-    EXPECT_EQ(result.sites.front().file, source);
+    EXPECT_EQ(nativeCanonical(result.sites.front().file), nativeCanonical(source));
     EXPECT_EQ(result.sites.front().callerQualifiedName.find("[macro-expanded]"), std::string::npos);
     f.write("main.cpp", "#include \"missing.h\"\nvoid run() {}\n");
     result = scanner.scanDetailed(source); EXPECT_FALSE(result.complete); EXPECT_FALSE(result.errors.empty());
@@ -991,5 +1007,5 @@ TEST(CppCMakeModel, SourceAndConfigMetadataRemainExplicit) {
     f.write(base + "target.json", json{{"sources", json::array({{{"path", "main.cpp"}}})}}.dump());
     auto model = readCppCMakeModel((f.root / "build").string(), f.root.string());
     EXPECT_TRUE(model.present); EXPECT_TRUE(model.unresolved.empty()); ASSERT_EQ(model.sources.size(), 1u);
-    EXPECT_EQ(model.sources.front(), (f.root / "main.cpp").string());
+    EXPECT_EQ(model.sources.front(), nativeCanonical(f.root / "main.cpp").string());
 }

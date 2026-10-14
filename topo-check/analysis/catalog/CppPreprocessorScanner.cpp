@@ -77,6 +77,9 @@ std::unordered_map<int, OriginalLocation> buildLineMap(const std::string& ppOutp
     static const std::regex lineDirective(R"re(^#\s+(\d+)\s+"((?:[^"\\]|\\.)*)"(.*)$)re");
 
     while (std::getline(stream, line)) {
+        // Clang's captured stdout retains CRLF on Windows. Normalize the
+        // physical terminator before matching the complete marker line.
+        if (!line.empty() && line.back() == '\r') line.pop_back();
         ++ppLineNum;
         std::smatch m;
         if (std::regex_search(line, m, lineDirective)) {
@@ -165,6 +168,9 @@ CppPreprocessorResult CppPreprocessorScanner::scanDetailed(const std::string& fi
         std::string line;
         int number = 0;
         while (std::getline(lines, line)) {
+            // The output stream adds the host terminator. Avoid writing an
+            // extra CR from captured Windows stdout into the temporary file.
+            if (!line.empty() && line.back() == '\r') line.pop_back();
             const auto location = lineMap.find(++number);
             if (location != lineMap.end() && !location->second.systemHeader) ofs << line;
             ofs << '\n';
