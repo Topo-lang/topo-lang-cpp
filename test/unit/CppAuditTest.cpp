@@ -26,16 +26,35 @@ using namespace topo::check;
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 namespace {
+void traceWindowsStage(const std::string& stage) {
+#ifdef _WIN32
+    std::cerr << "[windows-audit-fixture] " << stage << std::endl;
+#else
+    (void)stage;
+#endif
+}
+fs::path nativeCanonical(const fs::path& path) {
+    std::error_code error;
+    auto result = topo::platform::canonicalPath(path, error);
+    if (error) throw fs::filesystem_error("resolve native fixture target", path, error);
+    return result;
+}
+std::string nativeKey(fs::path path) { return path.make_preferred().string(); }
 void createAuditSymlink(fs::path target, fs::path link, bool directory = false) {
 #ifdef _WIN32
     // MinGW can leave std::filesystem link creation unimplemented even when
     // the host supports it. Keep these fixtures real, using the native API.
     target.make_preferred(); link.make_preferred();
+    traceWindowsStage("create symlink " + link.string());
     const DWORD kind = directory ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0;
-    if (CreateSymbolicLinkW(link.c_str(), target.c_str(), kind | 0x2)) return;
+    if (CreateSymbolicLinkW(link.c_str(), target.c_str(), kind | 0x2)) {
+        traceWindowsStage("created symlink " + link.string()); return;
+    }
     auto error = GetLastError();
     if (error == ERROR_INVALID_PARAMETER || error == ERROR_PRIVILEGE_NOT_HELD) {
-        if (CreateSymbolicLinkW(link.c_str(), target.c_str(), kind)) return;
+        if (CreateSymbolicLinkW(link.c_str(), target.c_str(), kind)) {
+            traceWindowsStage("created privileged symlink " + link.string()); return;
+        }
         error = GetLastError();
     }
     throw fs::filesystem_error("create audit symlink", target, link,
@@ -49,7 +68,11 @@ struct Fixture {
     topo::platform::TempFile anchor{"cpp-audit-test", ".tmp"};
     fs::path root{anchor.path().string() + ".dir"};
     Fixture() { fs::create_directories(root); root = fs::canonical(root); }
-    ~Fixture() { std::error_code ec; fs::remove_all(root, ec); }
+    ~Fixture() {
+        traceWindowsStage("cleanup begin " + root.string());
+        std::error_code ec; fs::remove_all(root, ec);
+        traceWindowsStage("cleanup end " + root.string() + " error=" + ec.message());
+    }
     std::string write(const std::string& path, const std::string& data) {
         fs::create_directories((root / path).parent_path());
         std::ofstream(root / path) << data; return (root / path).string();
@@ -99,39 +122,64 @@ TEST(CppCompileModel, PreservesSymlinkParentTraversalForModelSourceAndResponse) 
     fs::create_directories(f.root / "right/nested");
     createAuditSymlink("../right/nested", f.root / "left/link", true);
     const auto spelling = (f.root / "left/link/..").string();
+    const auto actualMain = nativeCanonical(fs::path(spelling) / "main.cpp");
+    const auto selectedDirectory = actualMain.parent_path();
+    const bool selectsLeft = selectedDirectory == nativeCanonical(f.root / "left");
     auto path = f.database({"clang++", "@left/link/../options.rsp", "-Ileft/link/..", "-c", "left/link/../main.cpp"}, "left/link/../main.cpp");
     auto model = loadCppCompileModel(path, f.root.string());
     ASSERT_TRUE(model.complete());
     EXPECT_EQ(model.units[0].file, spelling + "/main.cpp");
-    EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), "-DSELECTED=22"), model.units[0].arguments.end());
+    EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), selectsLeft ? "-DSELECTED=11" : "-DSELECTED=22"), model.units[0].arguments.end());
     EXPECT_NE(std::find(model.units[0].arguments.begin(), model.units[0].arguments.end(), "-I" + spelling), model.units[0].arguments.end());
-    const auto rightModel = f.write("right/compile_commands.json", json::array({{{"directory", f.root.string()}, {"file", "right/main.cpp"}, {"arguments", {"clang++", "--no-default-config", "-c", "right/main.cpp"}}}}).dump());
-    f.write("left/compile_commands.json", "not the selected model");
+    const auto selectedRelative = selectsLeft ? "left" : "right";
+    const auto selectedSource = std::string(selectedRelative) + "/main.cpp";
+    const auto selectedModel = f.write(std::string(selectedRelative) + "/compile_commands.json",
+        json::array({{{"directory", f.root.string()}, {"file", selectedSource},
+                     {"arguments", {"clang++", "--no-default-config", "-c", selectedSource}}}}).dump());
+    f.write(std::string(selectsLeft ? "right" : "left") + "/compile_commands.json", "not the selected model");
     auto selected = loadCppCompileModel(spelling + "/compile_commands.json", f.root.string());
     ASSERT_TRUE(selected.complete());
-    EXPECT_EQ(cppCanonicalPath(selected.path), rightModel);
+    EXPECT_EQ(nativeCanonical(selected.path), nativeCanonical(selectedModel));
 }
 TEST(CppCompileModel, AuthorizesPhysicalTargetBeforeSymlinkParentTraversalReads) {
     Fixture f, outside;
     f.write("main.cpp", "void run() {}\n");
     f.write("inside/options.rsp", "-DWRONG=1");
     outside.write("options.rsp", "-DOUTSIDE=1");
-    fs::create_directories(outside.root / "nested");
+    outside.write("nested/options.rsp", "-DOUTSIDE=1");
     createAuditSymlink(outside.root / "nested", f.root / "inside/link", true);
     const auto compiler = topo::platform::findOnPath("clang++");
     ASSERT_FALSE(compiler.empty());
     CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
-    for (const auto& option : {std::string("-Iinside/link/.."), std::string("@inside/link/../options.rsp")}) {
-        auto path = f.database({compiler, "--no-default-config", option, "-c", "main.cpp"});
-        auto denied = loadCppCompileModel(path, f.root.string(), &policy);
-        EXPECT_FALSE(denied.complete()) << option;
-        ASSERT_EQ(denied.units.size(), 1u);
-        EXPECT_FALSE(denied.units[0].inputDigests.count((f.root / "inside/link/../options.rsp").string()));
-        EXPECT_EQ(std::find(denied.units[0].arguments.begin(), denied.units[0].arguments.end(), "-DOUTSIDE=1"),
-                  denied.units[0].arguments.end());
-        policy.inputRoots.push_back(outside.root.string());
-        EXPECT_TRUE(loadCppCompileModel(path, f.root.string(), &policy).complete()) << option;
-        policy.inputRoots.pop_back();
+    // Win32 resolves '..' before traversing a link; POSIX traverses the link
+    // first. Verify the OS-selected target, and retain direct escaping-link
+    // cases so both platforms must enforce the external-input boundary.
+    for (const auto& spelling : {std::string("inside/link/.."), std::string("inside/link")}) {
+        for (const bool response : {false, true}) {
+            const auto selectedInput = spelling + (response ? "/options.rsp" : "");
+            const auto relativeTarget = nativeCanonical(f.root / selectedInput).lexically_relative(nativeCanonical(f.root));
+            const bool needsGrant = relativeTarget.empty() || relativeTarget.is_absolute() || *relativeTarget.begin() == "..";
+            const auto option = (response ? "@" : "-I") + selectedInput;
+            SCOPED_TRACE(option);
+            auto path = f.database({compiler, "--no-default-config", option, "-c", "main.cpp"});
+            traceWindowsStage("read-policy model begin " + option);
+            auto checked = loadCppCompileModel(path, f.root.string(), &policy);
+            traceWindowsStage("read-policy model end " + option);
+            EXPECT_EQ(checked.complete(), !needsGrant);
+            ASSERT_EQ(checked.units.size(), 1u);
+            if (needsGrant)
+                EXPECT_FALSE(checked.units[0].inputDigests.count((f.root / selectedInput).string()));
+            EXPECT_EQ(std::find(checked.units[0].arguments.begin(), checked.units[0].arguments.end(), "-DOUTSIDE=1"),
+                      checked.units[0].arguments.end());
+            policy.inputRoots.push_back(outside.root.string());
+            traceWindowsStage("granted model begin " + option);
+            auto granted = loadCppCompileModel(path, f.root.string(), &policy);
+            traceWindowsStage("granted model end " + option);
+            EXPECT_TRUE(granted.complete());
+            if (response) EXPECT_NE(std::find(granted.units[0].arguments.begin(), granted.units[0].arguments.end(),
+                                             needsGrant ? "-DOUTSIDE=1" : "-DWRONG=1"), granted.units[0].arguments.end());
+            policy.inputRoots.pop_back();
+        }
     }
 }
 TEST(CppCompileModel, UnknownCompilerAndFlagsDoNotLoseSemanticsSilently) {
@@ -168,10 +216,17 @@ TEST(CppCompileModel, AuditReadPolicyRejectsModelSelectedCompilerAndExternalInpu
     auto path = f.database({compiler, "--no-default-config", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iheaders", "-c", "main.cpp"});
     external.write("value.h", "#pragma once\n");
     createAuditSymlink(external.root, f.root / "headers", true);
+    traceWindowsStage("external search-root model begin");
     EXPECT_FALSE(loadCppCompileModel(path, f.root.string(), &policy).complete());
+    traceWindowsStage("external search-root model end");
     policy.inputRoots.push_back(external.root.string());
+    traceWindowsStage("granted search-root model begin");
     auto model = loadCppCompileModel(path, f.root.string(), &policy);
-    ASSERT_TRUE(model.complete()); EXPECT_TRUE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+    traceWindowsStage("granted search-root model end");
+    ASSERT_TRUE(model.complete());
+    traceWindowsStage("granted search-root identity begin");
+    EXPECT_TRUE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+    traceWindowsStage("granted search-root identity end");
     const auto fake = external.write("clang++", "#!/bin/sh\nexit 0\n");
     path = f.database({fake, "--no-default-config", "-c", "main.cpp"});
     model = loadCppCompileModel(path, f.root.string(), &policy);
@@ -247,11 +302,17 @@ TEST(CppAuditHeaderClosure, AuthorizedSearchRootsDoNotAuthorizeEscapingHeaderSym
     ASSERT_FALSE(compiler.empty());
     CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
     auto path = f.database({compiler, "--no-default-config", "-std=c++17", "-nostdinc", "-nostdinc++", "-c", "main.cpp"});
+    traceWindowsStage("policy model begin " + path);
     const auto model = loadCppCompileModel(path, f.root.string(), &policy);
+    traceWindowsStage("policy model end " + path);
     ASSERT_TRUE(model.complete());
+    traceWindowsStage("denied identity begin");
     EXPECT_FALSE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+    traceWindowsStage("denied identity end");
     policy.inputRoots.push_back(external.root.string());
+    traceWindowsStage("allowed identity begin");
     EXPECT_TRUE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+    traceWindowsStage("allowed identity end");
 }
 
 TEST(CppAuditHeaderClosure, TracksTransitiveAndPreviouslyMissingHigherPriorityHeaders) {
@@ -260,10 +321,15 @@ TEST(CppAuditHeaderClosure, TracksTransitiveAndPreviouslyMissingHigherPriorityHe
     f.write("later/value.h", "#pragma once\n#include \"detail.h\"\n");
     f.write("later/detail.h", "#define VALUE 7\n");
     auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iearly", "-Ilater", "-c", "main.cpp"});
-    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto identity = [&] {
+        traceWindowsStage("identity begin " + path);
+        auto result = cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()));
+        traceWindowsStage("identity end " + path);
+        return result;
+    };
     auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
-    EXPECT_EQ(first["searchCandidates"][(f.root / "early/value.h").string()]["kind"], "missing");
-    EXPECT_TRUE(first["inputs"].contains((f.root / "later/detail.h").string()));
+    EXPECT_EQ(first.at("searchCandidates").at(nativeKey(f.root / "early/value.h")).at("kind"), "missing");
+    EXPECT_TRUE(first["inputs"].contains(nativeKey(f.root / "later/detail.h")));
     f.write("later/detail.h", "#define VALUE 8\n"); EXPECT_NE(identity(), first);
     f.write("later/detail.h", "#define VALUE 7\n"); EXPECT_EQ(identity(), first);
     f.write("early/value.h", "#define VALUE 9\n"); EXPECT_NE(identity(), first);
@@ -281,10 +347,15 @@ TEST(CppAuditHeaderClosure, IncludesResponsesForcedHeadersAndQuoteOnlyRoots) {
     f.write("inner.rsp", "-std=c++17 -nostdinc -nostdinc++ -iquote quote -include forced.h -imacros macros.h");
     f.write("outer.rsp", "@inner.rsp -c main.cpp");
     auto path = f.database({"clang++", "@outer.rsp"});
-    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto identity = [&] {
+        traceWindowsStage("identity begin " + path);
+        auto result = cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()));
+        traceWindowsStage("identity end " + path);
+        return result;
+    };
     auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
     for (const auto* name : {"outer.rsp", "inner.rsp", "forced.h", "macro.h", "macros.h", "quote/quote.h"})
-        EXPECT_TRUE(first["inputs"].contains((f.root / name).string())) << name;
+        EXPECT_TRUE(first["inputs"].contains(nativeKey(f.root / name))) << name;
     f.write("macros.h", "#define EXTRA 2\n"); EXPECT_NE(identity(), first);
     f.write("macros.h", "#define EXTRA 1\n"); EXPECT_EQ(identity(), first);
     f.write("inner.rsp", "-std=c++17 -nostdinc -nostdinc++ -iquote quote -include forced.h -imacros macros.h -DOTHER=1");
@@ -297,9 +368,14 @@ TEST(CppAuditHeaderClosure, TracksIncludeNextAndLiteralNegativeProbes) {
     f.write("first/value.h", "#if __has_include_next(<value.h>)\n#include_next <value.h>\n#endif\n");
     f.write("second/value.h", "#define VALUE 1\n");
     auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Ifirst", "-Isecond", "-c", "main.cpp"});
-    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto identity = [&] {
+        traceWindowsStage("identity begin " + path);
+        auto result = cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()));
+        traceWindowsStage("identity end " + path);
+        return result;
+    };
     auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
-    EXPECT_TRUE(first["inputs"].contains((f.root / "second/value.h").string()));
+    EXPECT_TRUE(first["inputs"].contains(nativeKey(f.root / "second/value.h")));
     f.write("first/optional.h", "#define OPTIONAL 1\n"); EXPECT_NE(identity(), first);
 }
 
@@ -309,7 +385,12 @@ TEST(CppAuditHeaderClosure, TracksSymlinkRetargetingAndMissingIntermediateParent
     f.write("a/value.h", "#define VALUE 1\n"); f.write("b/value.h", "#define VALUE 1\n");
     createAuditSymlink(f.root / "a", f.root / "selected", true);
     auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iselected", "-c", "main.cpp"});
-    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto identity = [&] {
+        traceWindowsStage("identity begin " + path);
+        auto result = cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()));
+        traceWindowsStage("identity end " + path);
+        return result;
+    };
     auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
     fs::remove(f.root / "selected"); createAuditSymlink(f.root / "b", f.root / "selected", true);
     EXPECT_NE(identity(), first);
@@ -326,18 +407,19 @@ TEST(CppAuditHeaderClosure, PreservesSymlinkParentTraversalInLookupIdentity) {
     Fixture f;
     f.write("main.cpp", "#include <value.h>\nvoid run() {}\n");
     f.write("left/value.h", "#define SELECTED 11\n");
-    auto actual = f.write("right/value.h", "#define SELECTED 22\n");
+    f.write("right/value.h", "#define SELECTED 22\n");
     fs::create_directories(f.root / "right/nested");
     createAuditSymlink("../right/nested", f.root / "left/link", true);
+    const auto actual = nativeCanonical(f.root / "left/link/../value.h");
     auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Ileft/link/..", "-c", "main.cpp"});
     auto model = loadCppCompileModel(path, f.root.string());
     auto before = cppAuditInputIdentity(model);
     ASSERT_TRUE(before.value("supported", false)) << before.dump();
     bool found = false;
     for (const auto& [name, input] : before.at("inputs").items())
-        if (input.value("resolvedPath", "") == actual) found = true;
+        if (input.value("resolvedPath", "") == actual.generic_string()) found = true;
     EXPECT_TRUE(found);
-    f.write("right/value.h", "#define SELECTED 33\n");
+    std::ofstream(actual) << "#define SELECTED 33\n";
     EXPECT_NE(before, cppAuditInputIdentity(model));
 }
 
@@ -359,6 +441,19 @@ TEST(CppAuditHeaderClosure, BypassesDynamicAndUnclosedPreprocessorInputs) {
     f.write("include/bad.h", "#pragma once\n");
     EXPECT_TRUE(cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()))["supported"].get<bool>());
     fs::create_hard_link(f.root / "include/bad.h", f.root / "same-header.h");
+#ifdef _WIN32
+    const auto nativeHeader = (f.root / "include/bad.h").make_preferred();
+    const HANDLE handle = CreateFileW(nativeHeader.c_str(), 0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    ASSERT_NE(handle, INVALID_HANDLE_VALUE);
+    BY_HANDLE_FILE_INFORMATION information{};
+    const bool inspected = GetFileInformationByHandle(handle, &information) != 0;
+    CloseHandle(handle);
+    ASSERT_TRUE(inspected);
+    EXPECT_EQ(information.nNumberOfLinks, 2u);
+    traceWindowsStage("hardlink counts native=" + std::to_string(information.nNumberOfLinks) +
+                      " stdlib=" + std::to_string(fs::hard_link_count(nativeHeader)));
+#endif
     EXPECT_FALSE(cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()))["supported"].get<bool>());
 }
 TEST(CppAuditMacroHeaderClosure, CapturesAllBranchAliasesAndUseSiteSearchCandidates) {
@@ -368,13 +463,18 @@ TEST(CppAuditMacroHeaderClosure, CapturesAllBranchAliasesAndUseSiteSearchCandida
     f.write("late/value.h", "#define TRANSITIVE \"detail.h\"\n#include TRANSITIVE\n");
     f.write("late/detail.h", "#define VALUE 1\n"); f.write("late/other.h", "#define VALUE 2\n");
     auto path = f.database({"clang++", "-std=c++17", "-nostdinc", "-nostdinc++", "-Iearly", "-Ilate", "-c", "main.cpp"});
-    auto identity = [&] { return cppAuditInputIdentity(loadCppCompileModel(path, f.root.string())); };
+    auto identity = [&] {
+        traceWindowsStage("identity begin " + path);
+        auto result = cppAuditInputIdentity(loadCppCompileModel(path, f.root.string()));
+        traceWindowsStage("identity end " + path);
+        return result;
+    };
     const auto first = identity(); ASSERT_TRUE(first["supported"].get<bool>()) << first.dump();
     for (const auto* name : {"defs/headers.h", "late/value.h", "late/detail.h", "late/other.h"})
-        EXPECT_TRUE(first["inputs"].contains((f.root / name).string())) << name;
+        EXPECT_TRUE(first["inputs"].contains(nativeKey(f.root / name))) << name;
     for (const auto* name : {"value.h", "early/value.h", "early/optional.h", "late/optional.h"})
-        EXPECT_EQ(first["searchCandidates"][(f.root / name).string()]["kind"], "missing") << name;
-    EXPECT_FALSE(first["searchCandidates"].contains((f.root / "defs/value.h").string()));
+        EXPECT_EQ(first.at("searchCandidates").at(nativeKey(f.root / name)).at("kind"), "missing") << name;
+    EXPECT_FALSE(first["searchCandidates"].contains(nativeKey(f.root / "defs/value.h")));
     f.write("early/optional.h", "#pragma once\n"); EXPECT_NE(identity(), first);
     fs::remove(f.root / "early/optional.h"); EXPECT_EQ(identity(), first);
     f.write("early/value.h", "#define VALUE 3\n"); EXPECT_NE(identity(), first);
@@ -437,12 +537,18 @@ TEST(CppAuditMacroHeaderClosure, EnforcesAuthorizedRootsForExpandedCandidates) {
     const auto compiler = topo::platform::findOnPath("clang++"); ASSERT_FALSE(compiler.empty());
     CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
     auto path = f.database({compiler, "--no-default-config", "-std=c++17", "-nostdinc", "-nostdinc++", "-c", "main.cpp"});
+    traceWindowsStage("macro model begin");
     const auto model = loadCppCompileModel(path, f.root.string(), &policy); ASSERT_TRUE(model.complete());
+    traceWindowsStage("macro model end");
+    traceWindowsStage("macro denied identity begin");
     auto denied = cppAuditInputIdentity(model, &policy);
+    traceWindowsStage("macro denied identity end");
     EXPECT_FALSE(denied["supported"].get<bool>());
     EXPECT_NE(denied.value("reason", "").find("outside"), std::string::npos);
     policy.inputRoots.push_back(external.root.string());
+    traceWindowsStage("allowed identity begin");
     EXPECT_TRUE(cppAuditInputIdentity(model, &policy)["supported"].get<bool>());
+    traceWindowsStage("allowed identity end");
 }
 TEST(CppAuditMacroHeaderClosure, BoundsMacroNamesAlternativesAliasDepthAndClosureRounds) {
     Fixture f;

@@ -48,7 +48,9 @@ add_executable(topo-cpp-audit-filesystem-tests
     ../topo-check/extractor/CppAuditFileSystem.cpp
     ../topo-check/extractor/CppAuditNativeFile.cpp)
 target_include_directories(topo-cpp-audit-filesystem-tests SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
-target_link_libraries(topo-cpp-audit-filesystem-tests PRIVATE LLVM GTest::gtest_main)
+# Link the exported component target: bundled LLVM distributions need not
+# provide the optional monolithic LLVM target or a library named libLLVM.
+target_link_libraries(topo-cpp-audit-filesystem-tests PRIVATE LLVMSupport GTest::gtest_main)
 target_compile_features(topo-cpp-audit-filesystem-tests PRIVATE cxx_std_17)
 gtest_discover_tests(topo-cpp-audit-filesystem-tests
     TEST_PREFIX "cpp-audit-filesystem." DISCOVERY_TIMEOUT 30
