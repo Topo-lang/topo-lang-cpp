@@ -315,14 +315,21 @@ TEST(CppCompileModel, FixedAuditEnvironmentIgnoresAmbientHomeConfiguration) {
     struct HomeRestore {
         std::optional<std::string> old;
         HomeRestore(const std::string& value) {
-            if (const auto* current = std::getenv("HOME")) old = current;
+            if (const auto* current = std::getenv(name())) old = current;
             set(value.c_str());
+        }
+        static const char* name() {
+#ifdef _WIN32
+            return "USERPROFILE";
+#else
+            return "HOME";
+#endif
         }
         static void set(const char* value) {
 #ifdef _WIN32
-            _putenv_s("HOME", value ? value : "");
+            _putenv_s(name(), value ? value : "");
 #else
-            if (value) setenv("HOME", value, 1); else unsetenv("HOME");
+            if (value) setenv(name(), value, 1); else unsetenv(name());
 #endif
         }
         ~HomeRestore() { set(old ? old->c_str() : nullptr); }
@@ -331,6 +338,8 @@ TEST(CppCompileModel, FixedAuditEnvironmentIgnoresAmbientHomeConfiguration) {
     EXPECT_FALSE(loadCppCompileModel(path, f.root.string()).complete());
     CppCompileReadPolicy policy{{f.root.string()}, {cppCanonicalPath(compiler)}, true};
     EXPECT_TRUE(loadCppCompileModel(path, f.root.string(), &policy).complete());
+    EXPECT_TRUE(loadCppCompileModel(f.database({compiler, "--no-default-config", "-c", "main.cpp"}),
+                                   f.root.string()).complete());
 }
 
 TEST(CppAudit, UnconfiguredAuditDoesNotFallBackToFilesystemDiscovery) {

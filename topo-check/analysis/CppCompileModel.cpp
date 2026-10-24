@@ -196,9 +196,9 @@ void sanitize(CppCompileUnit& u, std::map<std::string, std::string>& digestCache
         if (!configs.empty())
             throw std::runtime_error("implicit Clang configuration requires explicitly expanded arguments and --no-default-config");
     }
-    if (!policy || !policy->fixedEnvironment) if (const auto* home = std::getenv("HOME")) {
+    if (!policy || !policy->fixedEnvironment) if (const auto home = topo::platform::homeDirectory(); !home.empty()) {
         std::error_code ec;
-        const auto userConfig = fs::path(home) / ".config/clang";
+        const auto userConfig = home / ".config/clang";
         if (!explicitNoDefault && fs::is_directory(userConfig, ec))
             for (const auto& file : fs::directory_iterator(userConfig))
                 if (file.is_regular_file() && file.path().extension() == ".cfg")
